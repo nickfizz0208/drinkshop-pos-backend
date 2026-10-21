@@ -8,9 +8,16 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import com.example.quiz_1150720.dto.ApiResponse;
+import io.jsonwebtoken.JwtException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(JwtException.class)
+    public ResponseEntity<ApiResponse<Void>> handleJwtException(JwtException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.failure("登入憑證無效或已過期，請重新登入"));
+    }
 
     // 1. 攔截 JSON 格式錯誤或型態轉換失敗
     @ExceptionHandler(HttpMessageNotReadableException.class)
@@ -26,6 +33,7 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.failure("參數 [" + fieldName + "] 的資料格式不正確"));
     }
 
+    @SuppressWarnings("rawtypes")
     // 2. 攔截業務邏輯例外
     @ExceptionHandler({ IllegalArgumentException.class, RuntimeException.class })
     public ResponseEntity<ApiResponse<Void>> handleRuntimeException(Exception e) {

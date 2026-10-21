@@ -1,6 +1,8 @@
 package com.example.quiz_1150720.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -8,6 +10,10 @@ import com.example.quiz_1150720.entity.QuizUser;
 
 @Repository
 public interface QuizUserRepository extends JpaRepository<QuizUser, String> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM QuizUser u WHERE u.account = :account")
+    QuizUser findByAccountForUpdate(@Param("account") String account);
 
     /**
      * 1. 檢查帳號是否存在

@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.example.quiz_1150720.dto.QuizOptionStatisticsResponse;
 import com.example.quiz_1150720.dto.QuizSubmissionDetailResponse;
@@ -14,6 +15,12 @@ import com.example.quiz_1150720.repository.QuizSubmissionRepository;
 
 @Service
 public class QuizStatisticsService {
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getSummary(Long quizId) {
+        return Map.of("totalResponses", quizSubmissionRepository.countByQuizId(quizId),
+            "questions", quizSubmissionRepository.getQuestionRespondentCounts(quizId));
+    }
 
     private final QuizSubmissionRepository quizSubmissionRepository;
 

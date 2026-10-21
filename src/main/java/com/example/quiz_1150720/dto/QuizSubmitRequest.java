@@ -2,7 +2,6 @@ package com.example.quiz_1150720.dto;
 
 import java.util.List;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
@@ -14,9 +13,9 @@ public class QuizSubmitRequest {
     @NotNull(message = "問卷 ID 不得為空")
     private Long quizId;
 
-    @NotEmpty(message = "作答內容不得為空")
+    @NotNull(message = "作答內容不得為空")
     @Valid
-    private List<AnswerItem> answers;
+    private List<@NotNull(message = "作答項目不得為空") AnswerItem> answers;
 
     public Long getQuizId() {
         return quizId;

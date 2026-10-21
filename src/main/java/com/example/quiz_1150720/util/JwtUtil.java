@@ -3,14 +3,23 @@ package com.example.quiz_1150720.util;
 import java.util.Date;
 import javax.crypto.SecretKey;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Value;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
 
 @Component
 public class JwtUtil {
 
-    // 透過 JJWT 自動產生符合 HS256 安全長度的密鑰
-    private final SecretKey SECRET_KEY = Jwts.SIG.HS256.key().build();
+    private final SecretKey SECRET_KEY;
+
+    public JwtUtil(@Value("${jwt.secret}") String secret) {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException("請設定 JWT_SECRET 或本機 .jwt.properties 的密鑰");
+        }
+        SECRET_KEY = Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret));
+    }
 
     // Token 有效時間：24 小時 (毫秒)
     private final long EXPIRATION_TIME = 86400000L;

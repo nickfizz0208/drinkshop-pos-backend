@@ -57,4 +57,30 @@ public interface QuizSubmissionRepository extends JpaRepository<QuizSubmission, 
             + "WHERE q.quiz_id = :quizId "
             + "GROUP BY q.id, q.title, qo.id, qo.option_text", nativeQuery = true)
     public List<Map<String, Object>> getQuizOptionStatistics(@Param("quizId") Long quizId);
+
+    /**
+     * 5. 撈取該問卷的所有填寫主檔，並 JOIN quiz_user 取得姓名與信箱
+     */
+    @Query(value = "SELECT s.id AS submissionId, s.submit_time AS submitTime, s.user_account AS account, u.name AS name, u.email AS email " +
+                   "FROM quiz_submission s " +
+                   "LEFT JOIN quiz_user u ON s.user_account = u.account " +
+                   "WHERE s.quiz_id = :quizId ORDER BY s.submit_time DESC, s.id DESC", nativeQuery = true)
+    public List<Map<String, Object>> getAllSubmissionsByQuizId(@Param("quizId") Long quizId);
+
+    List<QuizSubmission> findByUserAccountOrderBySubmitTimeDesc(String userAccount);
+
+    long countByQuizId(Long quizId);
+
+    @Query(value = "SELECT ad.question_id AS questionId, COUNT(DISTINCT ad.submission_id) AS respondentCount " +
+        "FROM quiz_answer_detail ad JOIN quiz_submission s ON s.id = ad.submission_id " +
+        "WHERE s.quiz_id = :quizId AND (ad.selected_option_id IS NOT NULL OR " +
+        "(ad.answer_text IS NOT NULL AND TRIM(ad.answer_text) <> '')) GROUP BY ad.question_id", nativeQuery = true)
+    List<Map<String, Object>> getQuestionRespondentCounts(@Param("quizId") Long quizId);
+
+    /**
+     * 6. 🌟 [新增] 刪除該帳號在此問卷的所有舊主檔紀錄（連以前累積的分身一次清光）
+     */
+    @Modifying
+    @Query(value = "DELETE FROM quiz_submission WHERE quiz_id = :quizId AND user_account = :account", nativeQuery = true)
+    public void deleteOldSubmissionsByQuizIdAndAccount(@Param("quizId") Long quizId, @Param("account") String account);
 }

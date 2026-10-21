@@ -45,6 +45,14 @@ public class Question {
     @Column(nullable = false)
     private Boolean isRequired = false;
 
+    private Integer parentQuestionNo;
+    private Integer triggerOptionNo;
+
+    public Integer getParentQuestionNo() { return parentQuestionNo; }
+    public void setParentQuestionNo(Integer value) { parentQuestionNo = value; }
+    public Integer getTriggerOptionNo() { return triggerOptionNo; }
+    public void setTriggerOptionNo(Integer value) { triggerOptionNo = value; }
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "quiz_id", nullable = false)
     private Quiz quiz;

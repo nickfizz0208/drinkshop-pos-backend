@@ -1,14 +1,10 @@
 package com.example.quiz_1150720.dto;
 
-import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Getter
 @Setter
-@AllArgsConstructor
-@NoArgsConstructor
 public class QuizOptionStatisticsResponse {
 
     private Long questionId;     // 題目 ID

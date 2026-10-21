@@ -94,6 +94,21 @@ public class QuizService {
         if (request.getQuestions() == null) return;
 
         for (QuizRequest.QuestionRequest qReq : request.getQuestions()) {
+            if (request.getQuestions().stream().filter(q -> qReq.getQuestionNo().equals(q.getQuestionNo())).count() != 1) {
+                throw new IllegalArgumentException("題目編號不可重複");
+            }
+            if (qReq.getParentQuestionNo() != null && qReq.getParentQuestionNo() > 0) {
+                var parent = request.getQuestions().stream()
+                    .filter(q -> qReq.getParentQuestionNo().equals(q.getQuestionNo())).findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("跳題條件的來源題目不存在"));
+                if (parent.getQuestionNo() >= qReq.getQuestionNo() || parent.getType() == QuestionType.TEXT ||
+                    parent.getOptions() == null || parent.getOptions().stream().noneMatch(o ->
+                        o.getOptionNo() != null && o.getOptionNo().equals(qReq.getTriggerOptionNo()))) {
+                    throw new IllegalArgumentException("跳題條件必須指定前面選擇題的有效選項");
+                }
+            } else if (qReq.getTriggerOptionNo() != null) {
+                throw new IllegalArgumentException("跳題條件缺少來源題目");
+            }
             QuestionType type = qReq.getType();
             if (type == QuestionType.SINGLE || type == QuestionType.MULTIPLE) {
                 if (qReq.getOptions() == null || qReq.getOptions().isEmpty()) {
@@ -135,6 +150,8 @@ public class QuizService {
                 question.setTitle(qReq.getTitle());
                 question.setType(qReq.getType());
                 question.setIsRequired(qReq.getIsRequired());
+                question.setParentQuestionNo(qReq.getParentQuestionNo());
+                question.setTriggerOptionNo(qReq.getTriggerOptionNo());
                 question.setQuiz(quiz);
 
                 if (qReq.getOptions() != null) {
@@ -175,6 +192,8 @@ public class QuizService {
                 qRes.setTitle(q.getTitle());
                 qRes.setType(q.getType());
                 qRes.setIsRequired(q.getIsRequired());
+                qRes.setParentQuestionNo(q.getParentQuestionNo());
+                qRes.setTriggerOptionNo(q.getTriggerOptionNo());
 
                 if (q.getOptions() != null) {
                     List<QuizResponse.QuestionOptionResponse> oResponses = q.getOptions().stream().map(o -> {

@@ -71,6 +71,13 @@ public class QuizRequest {
         private QuestionType type;
 
         private Boolean isRequired;
+        private Integer parentQuestionNo;
+        private Integer triggerOptionNo;
+
+        public Integer getParentQuestionNo() { return parentQuestionNo; }
+        public void setParentQuestionNo(Integer value) { parentQuestionNo = value; }
+        public Integer getTriggerOptionNo() { return triggerOptionNo; }
+        public void setTriggerOptionNo(Integer value) { triggerOptionNo = value; }
         private List<QuestionOptionRequest> options;
 
         public Long getId() { return id; }
