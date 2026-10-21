@@ -1,0 +1,97 @@
+{
+  "title": "校園學習與 AI 工具使用調查｜週五發表版",
+  "description": "想了解大家的學習習慣、AI 工具使用經驗與期待的課程支援。填寫約 2 分鐘，請依實際情況作答；簡答不需提供姓名或聯絡資料。第一題的選擇會帶你進入不同題目，最後再一起回答學習需求。",
+  "startDate": "2026-10-21",
+  "endDate": "2026-10-30",
+  "isPublished": true,
+  "questions": [
+    {
+      "questionNo": 1,
+      "title": "過去一個月，你是否曾使用 AI 工具協助學習？",
+      "type": "SINGLE",
+      "isRequired": true,
+      "options": [
+        { "optionNo": 1, "optionText": "有，曾經使用" },
+        { "optionNo": 2, "optionText": "沒有，尚未使用" }
+      ]
+    },
+    {
+      "questionNo": 2,
+      "title": "你曾使用 AI 協助哪些學習活動？（可複選）",
+      "type": "MULTIPLE",
+      "isRequired": true,
+      "parentQuestionNo": 1,
+      "triggerOptionNo": 1,
+      "options": [
+        { "optionNo": 1, "optionText": "概念解釋與重點整理" },
+        { "optionNo": 2, "optionText": "程式除錯與實作練習" },
+        { "optionNo": 3, "optionText": "寫作構思與文字修訂" },
+        { "optionNo": 4, "optionText": "外語翻譯與口說練習" },
+        { "optionNo": 5, "optionText": "練習題與考前複習" }
+      ]
+    },
+    {
+      "questionNo": 3,
+      "title": "分享一次 AI 幫助你學習的經驗，或曾遇到的困難。",
+      "type": "TEXT",
+      "isRequired": false,
+      "parentQuestionNo": 1,
+      "triggerOptionNo": 1,
+      "options": []
+    },
+    {
+      "questionNo": 4,
+      "title": "目前尚未使用 AI 協助學習，最主要的原因是什麼？",
+      "type": "SINGLE",
+      "isRequired": true,
+      "parentQuestionNo": 1,
+      "triggerOptionNo": 2,
+      "options": [
+        { "optionNo": 1, "optionText": "不熟悉操作方式或不知道從何開始" },
+        { "optionNo": 2, "optionText": "擔心答案不正確，需要花時間查證" },
+        { "optionNo": 3, "optionText": "目前的學習方式已能滿足需求" },
+        { "optionNo": 4, "optionText": "課程規範、費用或使用條件限制" }
+      ]
+    },
+    {
+      "questionNo": 5,
+      "title": "什麼樣的教學或支援，會讓你願意嘗試 AI 學習工具？",
+      "type": "TEXT",
+      "isRequired": false,
+      "parentQuestionNo": 1,
+      "triggerOptionNo": 2,
+      "options": []
+    },
+    {
+      "questionNo": 6,
+      "title": "你希望課程加強哪些學習支援？（可複選）",
+      "type": "MULTIPLE",
+      "isRequired": true,
+      "options": [
+        { "optionNo": 1, "optionText": "更多範例與實作教材" },
+        { "optionNo": 2, "optionText": "課後錄影與重點筆記" },
+        { "optionNo": 3, "optionText": "同儕討論與分組練習" },
+        { "optionNo": 4, "optionText": "教師或助教個別答疑" },
+        { "optionNo": 5, "optionText": "數位工具操作教學" }
+      ]
+    },
+    {
+      "questionNo": 7,
+      "title": "用一句話描述：你理想中的學習工具或課堂，應該具備什麼？",
+      "type": "TEXT",
+      "isRequired": true,
+      "options": []
+    },
+    {
+      "questionNo": 8,
+      "title": "如果有 AI 學習工具入門工作坊，你會想參加嗎？",
+      "type": "SINGLE",
+      "isRequired": false,
+      "options": [
+        { "optionNo": 1, "optionText": "會，想實際操作看看" },
+        { "optionNo": 2, "optionText": "可能會，要看時間與內容" },
+        { "optionNo": 3, "optionText": "目前沒有參加意願" }
+      ]
+    }
+  ]
+}
