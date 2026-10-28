@@ -13,9 +13,9 @@ GitHub 是原始碼與說明，沒有自動部署可操作網站，也不包含�
 
 1. Clone 後端，工作目錄切到專案根目錄；不用安裝全域 Gradle。
 2. 複製 `.pos-local.properties.example` 為 `.pos-local.properties`，填自己的 MySQL 帳密。此檔被 Git 忽略。
-3. 在 MySQL Workbench 依序執行 database/001_schema.sql、002_demo_data.sql、004_pos_api.sql、005_team_er_alignment.sql、006_demo_ingredient_costs.sql，各執行一次。既有 POS 資料庫請先核對升級進度，不可重跑種子資料。不要連舊 quiz 資料庫。
+3. 在 MySQL Workbench 依序執行 database/001_schema.sql、002_demo_data.sql、004_pos_api.sql、005_team_er_alignment.sql、006_demo_ingredient_costs.sql，各執行一次。既有 POS 資料庫請先核對升級進度，不可重跑種子資料。請使用獨立的 drinkshop_pos 資料庫。
 4. 尚未套用 007 時，先停止後端，安裝 Python 3（只需標準函式庫），於後端根目錄執行 `python scripts/migrate_payment.py`。它使用標準 MySQL 8 安裝位置的 mysql.exe／mysqldump.exe，先備份再套用 007；若安裝位置不同，調整腳本 BIN 常數。不要直接執行缺少移除舊約束步驟的 007。
-5. 執行 `./gradlew.bat test bootJar`，再執行 `./scripts/start-pos.ps1`；或使用 Eclipse Gradle 匯入後啟動 `com.example.drinkshop.DrinkshopApplication`。不要啟動舊 Quiz1150720Application。
+5. 執行 `./gradlew.bat test bootJar`，再執行 `./scripts/start-pos.ps1`；或使用 Eclipse Gradle 匯入後啟動 `com.example.drinkshop.DrinkshopApplication`。
 6. 確認 http://127.0.0.1:8083/api/health 回傳 UP。
 
 範例設定啟用時建立不存在的 staff、manager 測試帳號（密碼 123456）及當日開班；不覆寫既有帳號或重新開啟已關帳日期。這些是本機展示帳號。

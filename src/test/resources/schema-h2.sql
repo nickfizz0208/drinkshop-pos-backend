@@ -1,5 +1,5 @@
 -- Test-only mirror of MySQL baseline + migrations 004, 005 and 006.
--- Run manually against a NEW database. Never run through the old quiz app.
+-- Test-only schema mirror; executed against the isolated in-memory H2 database.
 
 CREATE TABLE staff_account (
   staff_id BIGINT PRIMARY KEY AUTO_INCREMENT,

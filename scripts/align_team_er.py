@@ -80,7 +80,6 @@ if not {"pos_order_chk_2","pos_order_chk_3"}.issubset(checks):
     raise RuntimeError("Expected baseline distance/time checks are missing; stopped.")
 
 before=snapshot(SCHEMA)
-quiz_before=snapshot("quiz_1150720")
 folder=ROOT/"build/db-backups"
 folder.mkdir(parents=True,exist_ok=True)
 backup=folder/("drinkshop_pos_before_005_"+datetime.now().strftime("%Y%m%d_%H%M%S_%f")+".sql")
@@ -93,11 +92,9 @@ if dumped.returncode or backup.stat().st_size==0:
 sql((ROOT/"database/005_team_er_alignment.sql").read_text(encoding="utf-8"))
 after=snapshot(SCHEMA)
 assert before==after,"Business data differs; inspect the backup before taking further action."
-assert quiz_before==snapshot("quiz_1150720"),"Quiz database changed during migration."
 assert len(after)==10
 print("Migration 005 applied; all business rows preserved across 10 tables.")
-print("Old quiz database snapshot unchanged.")
 print("Backup:",backup)
-report={"success":True,"tables":10,"businessRowsPreserved":True,"quizUnchanged":True,
+report={"success":True,"tables":10,"businessRowsPreserved":True,
         "backup":str(backup),"backupSha256":hashlib.sha256(backup.read_bytes()).hexdigest()}
 (ROOT/"build/team-er-migration.json").write_text(json.dumps(report,indent=2),encoding="utf-8")

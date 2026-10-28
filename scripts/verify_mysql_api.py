@@ -83,7 +83,7 @@ def request(product=1, quantity=1, toppings=None):
                        "toppingIds": toppings or []}]}
 
 
-before = {name: snapshot(name) for name in ("quiz_1150720", "drinkshop_pos")}
+before = {name: snapshot(name) for name in ("drinkshop_pos",)}
 try:
     assert sql("SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='" + SCHEMA + "';") == "0"
     sql((ROOT / "database/001_schema.sql").read_text(encoding="utf-8").replace("drinkshop_pos", SCHEMA))
@@ -217,9 +217,8 @@ try:
         assert sorted(pool.map(checkout, range(2))) == [200, 409]
     assert float(db("SELECT book_qty FROM inventory WHERE inventory_id=1;")) == 0
     checks.append("real MySQL concurrent checkout cannot oversell")
-    api("/api/quiz/list", expected=404)
     assert before == {name: snapshot(name) for name in before}
-    checks.append("old quiz API absent; original quiz/POS table counts unchanged")
+    checks.append("original POS table counts unchanged")
     report = {"success": True, "checks": checks, "isolatedDatabase": SCHEMA}
     (output / "result.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))

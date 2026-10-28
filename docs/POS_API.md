@@ -5,7 +5,7 @@
 本階段只做你負責的 POS 流程。會員地圖、菜單編輯、員工管理、手機配方及正式日結介面由其他模組後續接入。
 技術：Spring Boot 3.5.16、Java 21、Gradle 8.14.3、Spring JDBC、MySQL。
 使用 Controller → Service → Repository 分層，SQL 對應既有表；沒有 JPA/Hibernate 自動建表，也沒有分散式元件。
-新 package 為 `com.example.drinkshop`。舊問卷程式與測試保留於檔案中，但排除於 Gradle 建置，啟動時不會掃描或執行。
+Package 為 `com.example.drinkshop`，專案僅包含 POS 程式與測試。
 
 ## 啟動
 
@@ -16,8 +16,7 @@
 ```
 
 或 Eclipse 重新整理 Gradle 專案後執行 `DrinkshopApplication`，工作目錄須為後端根目錄。
-預設只監聽 `127.0.0.1:8083`，沒有變更前端。`GET http://localhost:8083/api/health` 應回傳 `status=UP`。
-不要再執行 `Quiz1150720Application`。
+預設只監聽 `127.0.0.1:8083`。`GET http://localhost:8083/api/health` 應回傳 `status=UP`。
 
 本機 `.pos-local.properties` 已排除於 Git，包含本機資料庫設定與本機測試密碼及 PIN。
 請自行在本機查看，不要把檔案貼上 GitHub。組員請依 TEAM_QUICKSTART.md 設定自己的環境。
@@ -50,7 +49,7 @@ ID 保留 BIGINT，避免縮小既有主鍵；金額與關聯依團隊 ER 圖調
 005 將各金額改為 `DECIMAL(10,2)`；明細加料使用 `order_topping_id` 自增主鍵，另保留 `(item_id,topping_id)` 唯一限制。
 距離改名為 `distance`（公尺，最多兩位小數），時間為 `duration`（整數秒）。
 新環境依序執行 `001_schema.sql`、`002_demo_data.sql`、`004_pos_api.sql`、`005_team_er_alignment.sql`、`006_demo_ingredient_costs.sql`，再依新文件套用 007。各支只執行一次，已存在資料庫不可重跑 001。
-程式不自動執行建表或 migration，也不讀寫問卷資料庫。
+程式不自動執行建表或 migration，只連線至設定的 POS 資料庫。
 資料庫帳號密碼可用 `POS_DB_USERNAME`、`POS_DB_PASSWORD`；URL 可用 `POS_DB_URL`。本機忽略檔的直接設定會覆蓋這些預設值，臨時覆蓋可用 `SPRING_DATASOURCE_*`。
 
 ## API 清單
@@ -187,7 +186,7 @@ Boot 3 與 Gradle 8 的組合依官方需求選定：[Spring Boot 3.5 system req
 
 本機已完成，不用再跑。其他同樣使用 001＋004 的環境，先停止 API，再執行 `scripts/align_team_er.py`。
 腳本先檢查舊 schema 與金額範圍，以 mysqldump 備份至已被 Git 忽略的 `build/db-backups/`，再套用 005。
-會比對所有表的既有資料（只忽略新增代理主鍵，數值依精確值比較），並確認舊問卷資料不變。
+會比對所有表的既有資料（只忽略新增代理主鍵，數值依精確值比較）。
 MySQL DDL 不支援整批回滾；若遇到非預期的部分升級狀態，腳本會停止，不自行刪除資料或重跑。
 資料庫備份包含帳號雜湊，不要提交或公開。
 

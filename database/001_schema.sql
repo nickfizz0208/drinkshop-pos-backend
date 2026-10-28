@@ -1,5 +1,5 @@
 -- Historical baseline: apply migrations 004 and 005 afterwards for the current API schema.
--- Run manually against a NEW database. Never run through the old quiz app.
+-- Run manually against a NEW POS database; application startup does not run SQL.
 CREATE DATABASE drinkshop_pos CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 USE drinkshop_pos;
 SET time_zone = '+08:00';
