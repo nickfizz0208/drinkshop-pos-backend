@@ -1,0 +1,157 @@
+erDiagram
+    %% Current MySQL schema after migrations 004 and 005.
+    %% Composite UNIQUE(item_id,topping_id) remains in order_item_topping.
+    %% 員工帳號
+    staff_account {
+        bigint staff_id PK
+        varchar username UK
+        varchar password_hash
+        varchar name
+        enum level
+        varchar pin_hash
+        tinyint active
+        datetime created_at
+    }
+    %% 會員
+    member {
+        varchar phone PK
+        varchar name
+        varchar address
+        decimal lat
+        decimal lng
+        varchar note
+        datetime created_at
+        datetime updated_at
+    }
+    %% 飲料與配方
+    product {
+        bigint product_id PK
+        varchar name UK
+        varchar category
+        decimal base_price "中杯價格"
+        decimal large_extra "大杯加價"
+        tinyint hot_allowed
+        text recipe_steps
+        json recipe_json
+        enum min_view_level
+        tinyint on_sale
+    }
+    %% 加料
+    topping {
+        bigint topping_id PK
+        varchar name UK
+        decimal price "加料價格"
+        bigint inventory_id FK
+        decimal deduct_qty
+        tinyint on_sale
+    }
+    %% 衝突規則
+    conflict_rule {
+        bigint rule_id PK
+        enum rule_type
+        json condition_json
+        json action_json
+        varchar message
+        tinyint enabled
+    }
+    %% 訂單主檔
+    pos_order {
+        bigint order_id PK
+        varchar order_no UK
+        date business_date FK
+        varchar member_phone FK
+        enum source
+        enum payment
+        enum payment_status "UNPAID 或 PAID"
+        decimal paid_amount "已收款扣除原找零"
+        decimal refunded_amount "累計人工退款"
+        decimal total "保留品項合計，非淨收款"
+        decimal received_cash "原實收現金"
+        decimal change_cash "累計退還現金含找零與退款"
+        enum status
+        decimal distance "公尺，DECIMAL(10,2)"
+        int duration "秒"
+        decimal delivery_fee
+        varchar address_note
+        varchar note
+        bigint created_by FK
+        varchar platform_no UK
+        datetime created_at
+        datetime updated_at
+        char request_hash "重送請求內容校驗"
+    }
+    %% 訂單明細
+    order_item {
+        bigint item_id PK
+        bigint order_id FK
+        bigint product_id FK
+        varchar product_name "下單時品名"
+        enum size
+        enum temperature
+        enum sugar
+        enum ice
+        int qty
+        decimal unit_price "含加料單價"
+        decimal material_cost "整筆原料估算快照，未知 NULL"
+        decimal refund_amount "此明細取消退款額"
+        enum status
+        varchar note
+        varchar reason
+        varchar photo_path "損耗照片路徑"
+        bigint approved_by FK "已製作棄單操作人，舊單為授權人"
+        datetime created_at
+        datetime updated_at
+        json deducted_inventory_json "實際扣料快照"
+    }
+    %% 明細加料
+    order_item_topping {
+        bigint order_topping_id PK "獨立主鍵"
+        bigint item_id FK
+        bigint topping_id FK
+        varchar topping_name "下單時加料名稱"
+        decimal price_at_order "已包含於單價的加料價"
+    }
+    %% 原料庫存
+    inventory {
+        bigint inventory_id PK
+        varchar name UK
+        varchar base_unit
+        varchar pack_unit
+        decimal per_pack
+        decimal book_qty
+        decimal safety_stock
+        decimal reported_qty
+        bigint reported_by FK
+        datetime reported_at
+        decimal unit_cost "每基本單位的虛構成本，未知為 NULL"
+    }
+    %% 營業日報
+    daily_shift {
+        date business_date PK
+        enum status
+        bigint opened_by FK
+        datetime opened_at
+        decimal petty_cash
+        json roles_json "門市當日職務"
+        json revenue_by_payment "日結各付款營收"
+        int cups
+        decimal expected_cash
+        decimal counted_cash
+        varchar diff_reason
+        bigint closed_by FK
+        datetime closed_at
+    }
+
+    member |o--o{ pos_order : "member_phone 可空白"
+    staff_account ||--o{ pos_order : "created_by 建單員工"
+    daily_shift ||--o{ pos_order : "business_date 營業日"
+    pos_order ||--|{ order_item : "order_id 至少一筆明細由 API 保證"
+    product ||--o{ order_item : "product_id"
+    staff_account |o--o{ order_item : "approved_by 可空白"
+    order_item ||--o{ order_item_topping : "item_id 可不加料"
+    topping ||--o{ order_item_topping : "topping_id"
+    inventory ||--o{ topping : "inventory_id"
+    staff_account |o--o{ inventory : "reported_by 可空白"
+    staff_account ||--o{ daily_shift : "opened_by"
+    staff_account |o--o{ daily_shift : "closed_by 可空白"
+    %% recipe_json / rule JSON references are checked in application logic, not SQL foreign keys.

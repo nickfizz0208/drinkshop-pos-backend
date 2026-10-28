@@ -1,77 +1,46 @@
-# PulseForm 問卷系統：Spring Boot 後端
+# 手搖飲 POS 後端
 
-課堂專題用問卷系統，搭配 Angular 前端。支援帳號登入、admin 問卷管理、單選／多選／簡答、條件跳題、同帳號重填覆蓋、公開統計與個人作答紀錄。
+目前已完成第一階段：菜單／規則查詢、員工身份驗證、建立多杯訂單、後端計價與扣料、製作狀態、取消回補、店長 PIN 授權棄單及損耗照片 API。
 
-## 專案位置與需求
+技術：Java 21、Spring Boot 3.5.16、Gradle 8.14.3、Spring JDBC、MySQL。
+前端尚未串接；會員地圖、菜單編輯、配方查看、盤點與正式開班日結介面待其他模組接入。
 
-- 後端：`C:\java_project1\quiz_1150720`，Java 21、Spring Boot、Spring Security、JPA、MySQL 8。
-- 前端：`C:\Users\User\Desktop\Angular\demo6`，Angular 19。
-- 後端網址：`http://localhost:8083`；前端網址：`http://localhost:4200`。
-- 根目錄另有舊的 `quiz_1150720/` 子資料夾。本次維護、啟動與測試都使用根目錄的 `src/` 與 `build.gradle`。
+## 啟動與測試
 
-## 第一次啟動
-
-在 MySQL 建立資料庫（不清除既有資料）：
-
-```sql
-CREATE DATABASE IF NOT EXISTS quiz_1150720 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-```
-
-依本機環境修改 `src/main/resources/application.properties` 的 datasource 連線設定，或設定 `SPRING_DATASOURCE_URL`、`SPRING_DATASOURCE_USERNAME`、`SPRING_DATASOURCE_PASSWORD`。目前 `ddl-auto=update` 會補齊缺少的表格／欄位；這不是正式環境的版本化 migration。
-
-JWT 密鑰讀取根目錄 `.jwt.properties` 的 `jwt.local-secret`，或優先使用環境變數 `JWT_SECRET`。這部電腦已建立本機密鑰，請保留，不需要重新產生。
-
-新電腦缺少密鑰時，在後端根目錄執行以下 PowerShell；已有檔案時不會覆蓋：
+從本專案根目錄執行：
 
 ```powershell
-if (-not (Test-Path .jwt.properties)) {
-    $jwtBytes = New-Object byte[] 32
-    $jwtRandom = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-    $jwtRandom.GetBytes($jwtBytes)
-    $jwtRandom.Dispose()
-    ('jwt.local-secret=' + [Convert]::ToBase64String($jwtBytes)) | Set-Content -Encoding ascii .jwt.properties
-}
+& .\scripts\start-pos.ps1 -Build
 ```
 
-此檔案已排除於 Git。更換密鑰會讓舊 Token 失效；密鑰相同且 Token 未過期時，後端重啟後仍可使用。
-
-## 啟動、測試與打包
-
-```powershell
-cd C:\java_project1\quiz_1150720
-.\gradlew.bat --gradle-user-home "$env:USERPROFILE\.gradle" bootRun
-```
-
-Eclipse 可直接執行 `Quiz1150720Application`；外部檔案修改後先選取專案按 F5。啟動工作目錄應為後端根目錄，並確認 8083 沒有另一份後端占用。
+新啟動類別：`com.example.drinkshop.DrinkshopApplication`。預設網址 `http://localhost:8083`，只監聽本機。
+健康檢查：`GET /api/health`。
 
 ```powershell
 .\gradlew.bat --gradle-user-home "$env:USERPROFILE\.gradle" test bootJar
 ```
 
-JUnit 整合測試使用 H2 記憶體資料庫，不會清除或修改本機 MySQL。測試報告在 `build/reports/tests/test/index.html`，可執行 JAR 在 `build/libs/`。
+## 使用與串接
 
-## 開發帳號與權限
+- [API 路徑、Postman 請求範例與限制](docs/POS_API.md)
+- [資料庫與假資料](database/README.md)
+- [虛構原料成本與每杯成本範例](docs/DEMO_COSTS.md)
+- [與團隊對齊的最新 ER 圖](docs/database-er.mmd)
+- 金額使用 DECIMAL(10,2)／BigDecimal，明細加料採獨立主鍵，距離與時間為 distance（公尺）、duration（秒）。
+- 本機帳密與 PIN 在已被 Git 忽略的 `.pos-local.properties`，請勿提交或公開。
+- 目前以 HTTP Basic 驗證 `staff`／`manager`，每次請求檢查帳號是否在職；不是 JWT 登入介面。
+- 取消 API 記錄人工完成退款後的結果，沒有串接實際金流。
+- `unit_price` 包含加料；同規格明細可有多杯，目前取消整筆明細，不拆單杯。
 
-新資料庫首次啟動時，DataInitializer 會建立開發帳號；已有同名帳號時不會重設密碼。
+## 舊問卷專案
 
-| 帳號 | 新建帳號的開發密碼 | 權限 |
-| --- | --- | --- |
-| admin | 123456 | 管理問卷、查看所有作答明細 |
-| user02 | 123123 | 填寫、查看自己的紀錄及公開統計 |
+舊 `com.example.quiz_1150720` 原始碼及測試保留作參考，但排除於 Gradle 編譯與啟動。
+新程式只掃描 `com.example.drinkshop`，不啟動舊初始化，也不使用 Hibernate 自動改表。
+`quiz_1150720/` 巢狀目錄與舊展示文件未刪除；`BACKEND_AUTHORIZATION.md`、`TESTING.md`、`SUBMISSION_FIXES.md`、`demo/` 是舊問卷說明，不是目前 POS API 規格。
+不要啟動舊 `Quiz1150720Application`，也不要將舊程式接到 POS 資料庫。
 
-一般帳號直接呼叫管理 API 回傳 403；缺少或失效 JWT 回傳 401。姓名、信箱、簡答與個別答案只向 admin 提供，自己的作答另有登入 API。詳細路徑見 [BACKEND_AUTHORIZATION.md](BACKEND_AUTHORIZATION.md)。
+開發時建議使用 start-pos.ps1：先檢查 8083 是否占用，再以獨立的 JAR 副本啟動；之後重新打包不會覆寫正在執行的 JAR。重啟前先停止舊服務，避免兩份後端競用連接埠。
 
-## 作答規則
+新增未付款接單、稍後收款、取消時不退／部分退／全退與原料損耗快照。資料欄位與升級方式見 [PAYMENT_AND_WASTAGE.md](docs/PAYMENT_AND_WASTAGE.md)。本機已套用 007，毋須重跑。
 
-- 以 Asia/Taipei 日期判斷，僅已發布且 `開始日 <= 今天 <= 截止日` 的問卷可送出。
-- 必填簡答的空白不算答案；必填選擇題須選有效選項。題目必須屬於該問卷，選項必須屬於該題。
-- 單選與簡答不得重複提供；多選不得重複選取相同選項。全部題目都非必填時，可送出空答案清單。
-- 條件跳題依來源選擇題的選項決定是否顯示，隱藏題目不要求必填，也不保存舊的隱藏答案。
-- 同帳號重填會在同一交易中先刪明細、再刪主檔，寫入最新內容；同帳號並行送出有資料列鎖。驗證或寫入失敗時，舊答案保留。
-- API 的 `submitTime` 是資料庫的實際送出時間，讀取或重新整理不會改變時間。
-
-條件跳題新增 `question.parent_question_no`、`question.trigger_option_no` 兩個可空欄位，重啟時由 Hibernate 補齊。早期僅存在瀏覽器的跳題設定，請由 admin 在原瀏覽器開啟該問卷編輯並重新儲存一次，才會同步到後端；有條件必填的舊問卷需先完成此步驟。
-
-## 展示與後續
-
-依 [TESTING.md](TESTING.md) 進行展示與驗收。這是本機課堂版本；正式部署仍需正式帳密、HTTPS、受控的秘密設定、資料庫 migration 與備份。前端圖片與其他選項標記等 UI 設定仍有瀏覽器本機保存的部分，跨電腦不保證同步。
+組員從這裡開始：[TEAM_QUICKSTART.md](docs/TEAM_QUICKSTART.md)。目前棄單不需店長帳號或 PIN，由有效登入員工操作並記錄本人。

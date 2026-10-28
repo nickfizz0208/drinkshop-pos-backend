@@ -1,0 +1,6 @@
+# Copy to .pos-local.properties and enter YOUR OWN local MySQL password.
+# This example contains demo credentials only, no real database password.
+spring.datasource.username=root
+spring.datasource.password=YOUR_MYSQL_PASSWORD
+pos.demo.enabled=true
+pos.demo.password=123456

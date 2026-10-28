@@ -38,3 +38,7 @@ out/
 
 # Local JWT signing secret
 .jwt.properties
+
+# POS local connection, demo credentials and photos
+.pos-local.properties
+uploads/
