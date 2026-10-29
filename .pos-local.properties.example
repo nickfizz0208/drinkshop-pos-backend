@@ -1,6 +1,9 @@
-# Copy to .pos-local.properties and enter YOUR OWN local MySQL password.
-# This example contains demo credentials only, no real database password.
-spring.datasource.username=root
-spring.datasource.password=YOUR_MYSQL_PASSWORD
+# 複製本檔並改名為 .pos-local.properties（已被 Git 忽略），再把組內共用文件上的內容貼進去。
+# 本檔只放格式與假值，不放真正的資料庫密碼。
+POS_DB_URL=jdbc:mysql://<host>.aivencloud.com:<port>/drinkshop_pos?sslMode=REQUIRED&serverTimezone=Asia/Taipei&characterEncoding=UTF-8
+POS_DB_USERNAME=avnadmin
+POS_DB_PASSWORD=<見共用文件>
+# 啟動時建立 staff／manager 測試帳號並開今天的班；沒有這兩行就無法登入與點餐。
+# 全組請使用共用文件上的同一個密碼（至少 6 碼）。
 pos.demo.enabled=true
 pos.demo.password=123456

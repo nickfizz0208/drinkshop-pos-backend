@@ -4,6 +4,14 @@
 目前 POS API 已接上 drinkshop_pos；使用明確 SQL，不使用 Hibernate 自動改表。前端已提供點餐與訂單介面，新單已記錄原料成本快照。
 後端使用方式參閱 `docs/POS_API.md`。
 
+## 雲端共用資料庫（Aiven）
+
+全組共用的資料庫架在 Aiven，資料庫名稱 `drinkshop_pos`，已依下列順序建好。**平常不需要執行這些 SQL**；只有雲端資料庫需要重建，或要在自己電腦建練習用資料庫時才執行，而且由一位組員執行一次即可。
+
+用 Workbench 連 Aiven：Hostname／Port／Username 見共用文件，SSL 分頁選 Require，Default Schema 留空。出現 8.4 版本相容警告時按 Continue Anyway。
+
+Workbench 預設開啟 Safe Updates，會擋下 006 的 UPDATE（Error 1175）。執行 006 前先在同一分頁執行 `SET SQL_SAFE_UPDATES = 0;`，或到 Preferences → SQL Editor 取消 Safe Updates 後重新連線。
+
 ## 執行順序
 
 在 MySQL Workbench 中依序開啟並執行：
@@ -13,7 +21,10 @@
 3. `004_pos_api.sql`：新增重送請求校驗與扣料快照兩欄（既有本機已套用）。
 4. `005_team_er_alignment.sql`：團隊 ER 圖調整（金額小數、加料獨立主鍵、距離時間改名；既有本機已套用）。
 5. `006_demo_ingredient_costs.sql`：新增每單位成本與八種原料假成本（本機已套用）。
-6. `003_verify.sql`：檢查原始範例訂單金額、庫存及配方原料參照。
+6. `007_payment_and_wastage_workbench.sql`：收款、退款與損耗欄位。內含原本由 `scripts/migrate_payment.py` 先做的「刪除舊現金約束」，可直接在 Workbench 執行；不要直接執行 `007_payment_and_wastage.sql`。
+7. `003_verify.sql`（選用）：檢查原始範例訂單金額、庫存及配方原料參照。
+
+`scripts/` 裡的 Python 腳本只連本機 `127.0.0.1:3306`，不能用於雲端資料庫。
 
 不使用 DROP、TRUNCATE、INSERT IGNORE 或覆蓋既有資料。資料庫已存在時第一支會失敗；請停止，不要選擇忽略錯誤繼續執行。
 種子資料僅執行一次。重複執行會因唯一鍵失敗，必須停止並 rollback，不要跳過錯誤；不可單獨重跑最後的庫存 UPDATE。

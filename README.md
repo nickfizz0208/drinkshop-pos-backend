@@ -14,9 +14,11 @@ Angular 前端已串接；會員地圖、菜單編輯、配方查看、盤點與
 3. 連 Aiven 時，`POS_DB_URL` 必須帶 `sslMode=REQUIRED`，不可使用 `useSSL=false`。格式如下：
 
 ```properties
-POS_DB_URL=jdbc:mysql://<host>.aivencloud.com:<port>/defaultdb?sslMode=REQUIRED&serverTimezone=Asia/Taipei&characterEncoding=UTF-8
+POS_DB_URL=jdbc:mysql://<host>.aivencloud.com:<port>/drinkshop_pos?sslMode=REQUIRED&serverTimezone=Asia/Taipei&characterEncoding=UTF-8
 POS_DB_USERNAME=avnadmin
 POS_DB_PASSWORD=<見共用文件>
+pos.demo.enabled=true
+pos.demo.password=<見共用文件>
 ```
 
 注意：
@@ -25,6 +27,10 @@ POS_DB_PASSWORD=<見共用文件>
 - 提交前在 SourceTree 確認 Staged 清單沒有這個檔案。萬一已提交，請立刻通知組員並到 Aiven 重設密碼。
 - 有人重設 Aiven 密碼時，請同步更新共用文件。
 - 共用文件請設為僅限組員檢視。
+- 資料庫名稱是 `drinkshop_pos`，不是 Aiven 預設的 `defaultdb`。
+- `pos.demo.enabled=true` 會在後端啟動時建立 `staff`／`manager` 測試帳號，並開今天的班；少了它無法登入，也無法建立訂單。全組請用同一個 demo 密碼（第一個啟動的人建立帳號後，之後不會被覆寫）。
+- 每天第一次使用前，需有一位組員啟動後端，當天才會開班。
+- 雲端資料庫已建好，**組員不需要再執行 `database/` 裡的 SQL**；重建方式見 [database/README.md](database/README.md)。
 - 未建立 `.pos-local.properties` 時，程式會改連本機 `localhost:3306/drinkshop_pos`。
 
 ## 啟動與測試
@@ -55,7 +61,7 @@ POS_DB_PASSWORD=<見共用文件>
 - 取消 API 記錄人工完成退款後的結果，沒有串接實際金流。
 - `unit_price` 包含加料；同規格明細可有多杯，目前取消整筆明細，不拆單杯。
 
-新增未付款接單、稍後收款、取消時不退／部分退／全退與原料損耗快照。資料欄位與升級方式見 [PAYMENT_AND_WASTAGE.md](docs/PAYMENT_AND_WASTAGE.md)。本機已套用 007，毋須重跑。
+新增未付款接單、稍後收款、取消時不退／部分退／全退與原料損耗快照。資料欄位與升級方式見 [PAYMENT_AND_WASTAGE.md](docs/PAYMENT_AND_WASTAGE.md)。依 database/README.md 建置的資料庫已包含 007，毋須另外升級。
 
 ## 組員入門
 

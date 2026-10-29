@@ -53,6 +53,8 @@ material_cost 依當次扣料量乘原料 unit_cost，合計後四捨五入至�
 
 先完成 001、002、004、005、006；停止 API 後執行 `scripts/migrate_payment.py`。腳本只處理 drinkshop_pos，先 mysqldump 備份至忽略的 build/db-backups，再移除舊現金約束並執行 007。比對筆數及庫存，遇到已套用／非預期狀態會停止。不要直接重跑或重建既有表。
 
+雲端（Aiven）或無法執行 Python 腳本的資料庫，改在 Workbench 執行 `database/007_payment_and_wastage_workbench.sql`，它包含相同的刪除舊約束步驟，且重複執行不會改動資料。
+
 36 項後端整合測試、39 項前端測試，以及隔離 MySQL 真實 HTTP 檢查涵蓋未收款棄單、部分退款、不退款、成本快照、重試、登入權限與扣料交易。
 
 團隊暫不使用店長帳號／PIN 授權。已製作棄單 approved_by 存實際登入員工，舊欄位名稱保留以相容 schema；資料庫不因此新增或移除欄位。
