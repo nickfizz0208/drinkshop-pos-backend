@@ -3,7 +3,7 @@
 目前已完成第一階段：菜單／規則查詢、員工身份驗證、建立多杯訂單、後端計價與扣料、製作狀態、取消回補、已登入員工棄單與操作人紀錄及損耗照片 API。
 
 技術：Java 21、Spring Boot 3.5.16、Gradle 8.14.3、Spring JDBC、MySQL（團隊共用資料庫架在 Aiven）。
-Angular 前端已串接；會員地圖、菜單編輯、配方查看、盤點與正式開班日結介面待其他模組接入。
+Angular 前端已串接；會員資料 API 已完成（見 docs/MEMBER_API.md）；會員地圖、菜單編輯、配方查看、盤點與正式開班日結介面待其他模組接入。
 
 ## 連線設定（第一次 clone 必做）
 
@@ -53,6 +53,7 @@ pos.demo.password=<見共用文件>
 ## 使用與串接
 
 - [API 路徑、Postman 請求範例與限制](docs/POS_API.md)
+- [會員 API](docs/MEMBER_API.md)
 - [資料庫與假資料](database/README.md)
 - [虛構原料成本與每杯成本範例](docs/DEMO_COSTS.md)
 - [與團隊對齊的最新 ER 圖](docs/database-er.mmd)

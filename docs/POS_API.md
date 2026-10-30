@@ -114,7 +114,7 @@ ID 保留 BIGINT，避免縮小既有主鍵；金額與關聯依團隊 ER 圖調
 選填欄位：`memberPhone`、`distance`、`duration`、`addressNote`、`note`。
 舊請求名稱 `distanceM`、`durationSeconds` 暫時作為輸入別名保留；回應一律為 `distance`、`duration`。
 `receivedCash` 可傳 `200.25`；JSON 金額維持 number，前端顯示時可格式化為兩位小數。
-非現金付款不要帶 `receivedCash`。既有會員電話必須存在；會員建立與地圖查詢不在本階段。
+非現金付款不要帶 `receivedCash`。會員電話必須已存在，否則回傳 404「找不到此會員電話，請先建立會員」。會員的新增、查詢、修改見 [MEMBER_API.md](MEMBER_API.md)；地圖查詢尚未實作。
 付款方式僅記錄人工收款結果，**沒有實際串接信用卡、LINE Pay 或 UberEats 收款／退款**。
 
 ### 狀態與棄單
