@@ -8,6 +8,8 @@ import com.example.drinkshop.exception.ToppingUnavailableException;
 import com.example.drinkshop.repository.InventoryRepository;
 import com.example.drinkshop.repository.ToppingRepository;
 import org.springframework.stereotype.Service;
+import java.time.Clock;
+import com.example.drinkshop.exception.ApiException;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -23,10 +25,11 @@ public class InventoryService {
 
     private final InventoryRepository inventoryRepository;
     private final ToppingRepository toppingRepository;
+    private final Clock clock;
 
-    public InventoryService(InventoryRepository inventoryRepository, ToppingRepository toppingRepository) {
+    public InventoryService(InventoryRepository inventoryRepository, ToppingRepository toppingRepository, Clock clock) {
         this.inventoryRepository = inventoryRepository;
-        this.toppingRepository = toppingRepository;
+        this.toppingRepository = toppingRepository; this.clock = clock;
     }
 
     // ==========================================
@@ -63,9 +66,10 @@ public class InventoryService {
      */
     public Inventory updateStock(Long inventoryId, BigDecimal quantity) {
         if (quantity == null || quantity.compareTo(BigDecimal.ZERO) < 0) {
-            throw new IllegalArgumentException("庫存數量不能為空或小於 0");
+            throw ApiException.bad("庫存數量不能為空或小於 0");
         }
-        Inventory inventory = getInventoryById(inventoryId);
+        Inventory inventory = inventoryRepository.findLocked(inventoryId)
+            .orElseThrow(() -> ApiException.missing("查無指定原料"));
         inventory.setBookQty(quantity);
         return inventoryRepository.save(inventory);
     }
@@ -75,11 +79,12 @@ public class InventoryService {
      */
     public Inventory deductStock(Long inventoryId, BigDecimal amount) {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("扣減數量必須大於 0");
+            throw ApiException.bad("扣減數量必須大於 0");
         }
-        Inventory inventory = getInventoryById(inventoryId);
+        Inventory inventory = inventoryRepository.findLocked(inventoryId)
+            .orElseThrow(() -> ApiException.missing("查無指定原料"));
         if (inventory.getBookQty().compareTo(amount) < 0) {
-            throw new InsufficientStockException("原料 [" + inventory.getName() + "] 庫存不足！現有: "
+            throw ApiException.conflict("原料 [" + inventory.getName() + "] 庫存不足！現有: "
                     + inventory.getBookQty() + " " + inventory.getBaseUnit() + "，欲扣除: " + amount);
         }
         inventory.setBookQty(inventory.getBookQty().subtract(amount));
@@ -91,12 +96,13 @@ public class InventoryService {
      */
     public Inventory reportStock(Long inventoryId, BigDecimal reportedQty, Long staffId) {
         if (reportedQty == null || reportedQty.compareTo(BigDecimal.ZERO) < 0) {
-            throw new IllegalArgumentException("回報數量不能為空或小於 0");
+            throw ApiException.bad("回報數量不能為空或小於 0");
         }
-        Inventory inventory = getInventoryById(inventoryId);
+        Inventory inventory = inventoryRepository.findLocked(inventoryId)
+            .orElseThrow(() -> ApiException.missing("查無指定原料"));
         inventory.setReportedQty(reportedQty);
         inventory.setReportedBy(staffId);
-        inventory.setReportedAt(LocalDateTime.now());
+        inventory.setReportedAt(LocalDateTime.now(clock));
         return inventoryRepository.save(inventory);
     }
 
@@ -147,7 +153,7 @@ public class InventoryService {
         // 檢查對應之原料現有庫存
         Inventory inventory = getInventoryById(topping.getInventoryId());
         if (inventory.getBookQty().compareTo(requiredQty) < 0) {
-            throw new InsufficientStockException("加料 [" + topping.getName() + "] 所需原料 ["
+            throw ApiException.conflict("加料 [" + topping.getName() + "] 所需原料 ["
                     + inventory.getName() + "] 庫存不足，無法加料！現有: "
                     + inventory.getBookQty() + "，需要: " + requiredQty);
         }

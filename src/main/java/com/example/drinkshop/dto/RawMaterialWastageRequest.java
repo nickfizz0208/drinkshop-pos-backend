@@ -12,8 +12,8 @@ import java.math.BigDecimal;
  * 原料報廢登記請求傳輸物件（扁平化 DTO）
  */
 public record RawMaterialWastageRequest(
-        // 原料庫存編號（選填，若 URL 路徑中未帶則在此指定）
-        Long inventoryId,
+        // 原料庫存編號（必填）
+        @NotNull @Positive Long inventoryId,
 
         // 報廢損耗數量（必填，必須大於 0）
         @NotNull(message = "報廢數量不能為空")
@@ -26,7 +26,7 @@ public record RawMaterialWastageRequest(
         @Size(max = 255, message = "報廢原因不能超過 255 字元")
         String reason,
 
-        // 通報員工編號（選填，若未填則後端自動以當前登入店員為準）
+        // 舊版相容欄位；後端忽略此值，實際操作人以登入帳號為準
         Long staffId
 ) {
     public RawMaterialWastageRequest(BigDecimal wastageQty, String reason) {

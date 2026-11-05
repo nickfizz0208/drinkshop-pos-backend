@@ -291,6 +291,19 @@ public class OrderService {
         refresh(orderId);
         return repo.detail(orderId);
     }
+    /** 新報廢入口只接受製作中／待取餐；預設不退款，退款必須明確傳入。 */
+    @Transactional(isolation=Isolation.READ_COMMITTED)
+    public Map<String,Object> recordWastage(long itemId, Cancel request, String username) {
+        actor(username);
+        var before=repo.one("SELECT order_id FROM order_item WHERE item_id=?",itemId);
+        long orderId=number(before,"order_id");
+        lockOrder(orderId);
+        var item=repo.one("SELECT status FROM order_item WHERE item_id=? FOR UPDATE",itemId);
+        if (!Set.of("MAKING","DONE","WASTED").contains(item.get("status")))
+            throw ApiException.conflict("只有製作中或待取餐品項可報廢；待製作請走取消，已取餐不支援報廢");
+        return cancel(orderId,itemId,request,username);
+    }
+
     // 依仍保留的明細重算總額與整單狀態；取消的明細仍保存在資料庫，沒有刪除。
     // total 是保留品項金額；淨收款要算 paid_amount - refunded_amount，兩者不能混用。
     private void refresh(long orderId) {

@@ -24,10 +24,11 @@ public class DailyShiftController {
 
     private final DailyShiftService dailyShiftService;
     private final PosRepository posRepository;
+    private final java.time.Clock clock;
 
-    public DailyShiftController(DailyShiftService dailyShiftService, PosRepository posRepository) {
+    public DailyShiftController(DailyShiftService dailyShiftService, PosRepository posRepository, java.time.Clock clock) {
         this.dailyShiftService = dailyShiftService;
-        this.posRepository = posRepository;
+        this.posRepository = posRepository; this.clock = clock;
     }
 
     /**
@@ -38,7 +39,7 @@ public class DailyShiftController {
     public ResponseEntity<DailyShift> openShift(
             @Valid @RequestBody OpenShiftRequest request,
             Principal principal) {
-        LocalDate date = request.businessDate() != null ? request.businessDate() : LocalDate.now();
+        LocalDate date = request.businessDate() != null ? request.businessDate() : LocalDate.now(clock);
         Long staffId = resolveStaffId(request.staffId(), principal);
 
         DailyShift shift = dailyShiftService.openShift(
@@ -58,7 +59,7 @@ public class DailyShiftController {
     public ResponseEntity<ShiftClosingSummaryResponse> closeShift(
             @Valid @RequestBody CloseShiftRequest request,
             Principal principal) {
-        LocalDate date = request.businessDate() != null ? request.businessDate() : LocalDate.now();
+        LocalDate date = request.businessDate() != null ? request.businessDate() : LocalDate.now(clock);
         Long staffId = resolveStaffId(request.staffId(), principal);
 
         ShiftClosingSummaryResponse summary = dailyShiftService.closeShift(
@@ -82,18 +83,14 @@ public class DailyShiftController {
     }
 
     /**
-     * 輔助方法：優先採用請求中的 staffId，若無則自目前登入的 Principal 解析員工編號，預設為 1L
+     * 輔助方法：由登入身份取得真正的操作人，忽略請求指定的員工編號
      */
-    private Long resolveStaffId(Long requestedStaffId, Principal principal) {
-        if (requestedStaffId != null && requestedStaffId > 0) {
-            return requestedStaffId;
-        }
-        if (principal != null) {
-            return posRepository.staff(principal.getName())
-                    .map(s -> s.id())
-                    .orElse(1L);
-        }
-        return 1L;
+    // 請求的 staffId 僅作舊版相容；實際操作人必須來自已登入帳戶。
+    private Long resolveStaffId(Long ignoredStaffId, Principal principal) {
+        if (principal == null) throw new com.example.drinkshop.exception.ApiException(
+            org.springframework.http.HttpStatus.UNAUTHORIZED, "請先登入");
+        return posRepository.staff(principal.getName()).filter(s -> s.active())
+            .orElseThrow(() -> new com.example.drinkshop.exception.ApiException(
+                org.springframework.http.HttpStatus.UNAUTHORIZED, "員工帳號已停用")).id();
     }
 }
-

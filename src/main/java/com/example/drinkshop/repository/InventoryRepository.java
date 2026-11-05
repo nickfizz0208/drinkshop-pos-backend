@@ -13,6 +13,10 @@ import java.util.Optional;
  */
 @Repository
 public interface InventoryRepository extends JpaRepository<Inventory, Long> {
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT i FROM Inventory i WHERE i.inventoryId = :id")
+    Optional<Inventory> findLocked(@org.springframework.data.repository.query.Param("id") Long id);
+
 
     // 依名稱關鍵字模糊查詢原料
     List<Inventory> findByNameContaining(String name);

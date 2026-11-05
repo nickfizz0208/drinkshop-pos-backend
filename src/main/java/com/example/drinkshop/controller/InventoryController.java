@@ -130,16 +130,12 @@ public class InventoryController {
         return ResponseEntity.ok(topping);
     }
 
-    private Long resolveStaffId(Long requestedStaffId, Principal principal) {
-        if (requestedStaffId != null && requestedStaffId > 0) {
-            return requestedStaffId;
-        }
-        if (principal != null) {
-            return posRepository.staff(principal.getName())
-                    .map(s -> s.id())
-                    .orElse(1L);
-        }
-        return 1L;
+    // 請求的 staffId 僅作舊版相容；實際操作人必須來自已登入帳戶。
+    private Long resolveStaffId(Long ignoredStaffId, Principal principal) {
+        if (principal == null) throw new com.example.drinkshop.exception.ApiException(
+            org.springframework.http.HttpStatus.UNAUTHORIZED, "請先登入");
+        return posRepository.staff(principal.getName()).filter(s -> s.active())
+            .orElseThrow(() -> new com.example.drinkshop.exception.ApiException(
+                org.springframework.http.HttpStatus.UNAUTHORIZED, "員工帳號已停用")).id();
     }
 }
-

@@ -25,7 +25,7 @@ public record CloseShiftRequest(
         @Size(max = 255, message = "差異原因說明不可超過 255 字元")
         String diffReason,
 
-        // 關班結算員工編號（選填，若未填則後端自動以當前登入店員為準）
+        // 舊版相容欄位；後端忽略此值，實際操作人以登入帳號為準
         Long staffId
 ) {
     public CloseShiftRequest(BigDecimal countedCash, String diffReason) {

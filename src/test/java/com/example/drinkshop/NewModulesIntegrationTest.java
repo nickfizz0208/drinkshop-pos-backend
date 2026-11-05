@@ -31,6 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {
         "spring.config.import=",
         "pos.demo.enabled=false",
+        "pos.raw-wastage.enabled=true",
         "spring.datasource.url=jdbc:h2:mem:pos_new_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000",
         "spring.datasource.driver-class-name=org.h2.Driver",
         "spring.datasource.username=sa",
@@ -58,8 +59,19 @@ public class NewModulesIntegrationTest {
     @Autowired
     private ObjectMapper mapper;
 
+    @org.springframework.boot.test.context.TestConfiguration
+    static class TestClock {
+        @org.springframework.context.annotation.Bean @org.springframework.context.annotation.Primary
+        java.time.Clock fixedClock() {
+            return java.time.Clock.fixed(java.time.Instant.parse("2026-10-28T03:00:00Z"),java.time.ZoneId.of("Asia/Taipei"));
+        }
+    }
+
     @BeforeEach
     void resetDatabase() {
+        try (var connection=dataSource.getConnection()) {
+            org.junit.jupiter.api.Assertions.assertTrue(connection.getMetaData().getURL().startsWith("jdbc:h2:mem:"));
+        } catch (java.sql.SQLException ex) { throw new RuntimeException(ex); }
         jdbc.execute("DROP ALL OBJECTS");
         ResourceDatabasePopulator populator = new ResourceDatabasePopulator(
                 new ClassPathResource("schema-h2.sql"),
@@ -165,6 +177,7 @@ public class NewModulesIntegrationTest {
                         .with(httpBasic(TEST_USER, TEST_PASS)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalWastedCount").exists())
-                .andExpect(jsonPath("$.totalWastageCost").exists());
+                .andExpect(jsonPath("$.costComplete").value(false))
+                .andExpect(jsonPath("$.rawMaterialWastages[0].reason").value("過期變質"));
     }
 }

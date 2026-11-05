@@ -16,7 +16,7 @@ public record StockQuantityRequest(
         @Digits(integer = 10, fraction = 2, message = "數量格式不正確")
         BigDecimal quantity,
 
-        // 經手員工編號（選填，盤點回報時可指定，若未填則自動以當前登入店員為準）
+        // 舊版相容欄位；後端忽略此值，實際操作人以登入帳號為準
         Long staffId
 ) {
     public StockQuantityRequest(BigDecimal quantity) {
