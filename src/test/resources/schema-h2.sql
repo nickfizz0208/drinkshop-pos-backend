@@ -189,3 +189,76 @@ ALTER TABLE order_item ADD COLUMN deducted_inventory_json JSON;
 
 ALTER TABLE order_item ADD material_cost DECIMAL(10,2);
 ALTER TABLE order_item ADD refund_amount DECIMAL(10,2) DEFAULT 0 NOT NULL;
+
+CREATE TABLE checklist_item (
+  item_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(50) NOT NULL,
+  frequency ENUM('DAILY','WEEKLY') NOT NULL,
+  target_count INT NOT NULL DEFAULT 1,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by BIGINT NOT NULL,
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  FOREIGN KEY (created_by) REFERENCES staff_account(staff_id),
+  CHECK (target_count >= 1)
+);
+
+CREATE TABLE checklist_record (
+  record_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  item_id BIGINT NOT NULL,
+  staff_id BIGINT NOT NULL,
+  period VARCHAR(10) NOT NULL,
+  done_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  FOREIGN KEY (item_id) REFERENCES checklist_item(item_id),
+  FOREIGN KEY (staff_id) REFERENCES staff_account(staff_id)
+);
+CREATE INDEX idx_checklist_record_period ON checklist_record(item_id, period);
+
+CREATE TABLE shift_staff (
+  shift_staff_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  business_date DATE NOT NULL,
+  staff_id BIGINT NOT NULL,
+  clock_in_at DATETIME(6) NOT NULL,
+  clock_out_at DATETIME(6) NULL,
+  updated_by BIGINT NULL,
+  updated_at DATETIME(6) NULL,
+  FOREIGN KEY (business_date) REFERENCES daily_shift(business_date),
+  FOREIGN KEY (staff_id) REFERENCES staff_account(staff_id),
+  FOREIGN KEY (updated_by) REFERENCES staff_account(staff_id),
+  CHECK (clock_out_at IS NULL OR clock_out_at >= clock_in_at)
+);
+CREATE INDEX idx_shift_staff_on_duty ON shift_staff(business_date, staff_id, clock_out_at);
+
+CREATE TABLE shift_template (
+  template_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(20) NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  CHECK (end_time > start_time)
+);
+
+CREATE TABLE staff_schedule (
+  schedule_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  work_date DATE NOT NULL,
+  staff_id BIGINT NOT NULL,
+  template_id BIGINT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  note VARCHAR(100) NULL,
+  created_by BIGINT NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  FOREIGN KEY (staff_id) REFERENCES staff_account(staff_id),
+  FOREIGN KEY (template_id) REFERENCES shift_template(template_id),
+  FOREIGN KEY (created_by) REFERENCES staff_account(staff_id),
+  CHECK (end_time > start_time)
+);
+
+CREATE TABLE schedule_week (
+  week_start DATE PRIMARY KEY,
+  published_by BIGINT NOT NULL,
+  published_at DATETIME(6) NOT NULL,
+  modified_after_publish BOOLEAN NOT NULL DEFAULT FALSE,
+  FOREIGN KEY (published_by) REFERENCES staff_account(staff_id)
+);
+CREATE INDEX idx_staff_schedule_date ON staff_schedule(work_date, staff_id);
