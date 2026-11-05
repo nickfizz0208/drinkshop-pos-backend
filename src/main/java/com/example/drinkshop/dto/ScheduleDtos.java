@@ -33,8 +33,8 @@ public final class ScheduleDtos {
 
     // ---------- 週檢視 ----------
     /**
-     * published = false 時：店長看得到草稿，一般員工 entries 為空。
-     * modifiedAfterPublish = true：發布後又有修改，提醒店長通知員工。
+     * 店長拿到草稿；一般員工拿到已發布版本（published = false 時為空）。
+     * modifiedAfterPublish = true：已發布的週有尚未發布的修改（只有店長會看到 true）。
      */
     public record WeekResponse(LocalDate weekStart, LocalDate weekEnd, boolean published, LocalDateTime publishedAt,
                                Long publishedBy, boolean modifiedAfterPublish, boolean canEdit,

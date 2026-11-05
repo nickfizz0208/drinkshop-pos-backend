@@ -22,8 +22,10 @@ public final class ChecklistDtos {
         @NotNull @Min(1) @Max(99) Integer targetCount,
         @NotNull Boolean active) {}
 
-    /** 打勾：做事的人由前端選擇（目前 POS 共用帳號登入，不用登入者）。 */
-    public record CreateRecord(@NotNull Long itemId, @NotNull Long staffId) {}
+    /**
+     * 打勾。staffId：POS 共用帳號必填（選在班的人）；個人帳號不用填，一律記成自己（填別人會被拒絕）。
+     */
+    public record CreateRecord(@NotNull Long itemId, Long staffId) {}
 
     public record ItemResponse(Long itemId, String name, Frequency frequency, int targetCount, boolean active,
                                LocalDateTime createdAt, LocalDateTime updatedAt) {

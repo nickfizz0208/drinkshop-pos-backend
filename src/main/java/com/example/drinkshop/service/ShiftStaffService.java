@@ -22,6 +22,7 @@ import java.util.Set;
 /**
  * 上下班打卡。打卡選名字即可；修改、刪除紀錄限店長以上（店長需用自己的帳號登入）。
  * 必須當天已開班（daily_shift 為 OPEN）才能上班打卡；同一人還在班時不能重複上班打卡。
+ * 隱私：店長、總部看得到所有人的紀錄；其他人只看得到「目前在班的人」和自己的紀錄（工時與薪資相關）。
  */
 @Service
 @Transactional
@@ -69,11 +70,36 @@ public class ShiftStaffService {
             .stream().map(this::toResponse).toList();
     }
 
-    /** 某營業日的全部打卡紀錄（不填為今天）。 */
+    /** 某營業日的打卡紀錄（不填為今天）。店長看全部，其他人只看自己的。 */
     @Transactional(readOnly = true)
-    public List<Response> list(LocalDate date) {
-        return shiftStaff.findByBusinessDateOrderByClockInAtAsc(date == null ? today() : date)
+    public List<Response> list(LocalDate date, String username) {
+        var viewer = orders.actor(username);
+        boolean manager = MANAGER_LEVELS.contains(viewer.level());
+        return shiftStaff.findByBusinessDateOrderByClockInAtAsc(date == null ? today() : date).stream()
+            .filter(s -> manager || s.getStaffId().equals(viewer.id()))
+            .map(this::toResponse).toList();
+    }
+
+    /** 自己某個月的打卡紀錄（我的紀錄）。 */
+    @Transactional(readOnly = true)
+    public List<Response> mine(java.time.YearMonth month, String username) {
+        var me = orders.actor(username);
+        var m = month == null ? java.time.YearMonth.from(today()) : month;
+        return shiftStaff.findByStaffIdAndBusinessDateBetweenOrderByClockInAtAsc(me.id(), m.atDay(1), m.atEndOfMonth())
             .stream().map(this::toResponse).toList();
+    }
+
+    /** 打卡頁：今天開班狀態＋今天的紀錄。店長看全部；其他人只看「在班中的人」和自己的紀錄。 */
+    @Transactional(readOnly = true)
+    public com.example.drinkshop.dto.ShiftStaffDtos.Today todayStatus(String username) {
+        var viewer = orders.actor(username);
+        boolean manager = MANAGER_LEVELS.contains(viewer.level());
+        var date = today();
+        String status = shifts.findById(date).map(s -> s.getStatus().toUpperCase()).orElse("NONE");
+        var records = shiftStaff.findByBusinessDateOrderByClockInAtAsc(date).stream()
+            .filter(s -> manager || s.getClockOutAt() == null || s.getStaffId().equals(viewer.id()))
+            .map(this::toResponse).toList();
+        return new com.example.drinkshop.dto.ShiftStaffDtos.Today(date, status, records, manager);
     }
 
     /** 給其他功能使用（例如 checklist 打勾）：這位員工今天是否在班。 */
@@ -106,6 +132,12 @@ public class ShiftStaffService {
     }
 
     // ---------- 共用（checklist 也會用到） ----------
+
+    /** 店長、總部。 */
+    public boolean isManager(Staff staff) { return MANAGER_LEVELS.contains(staff.level()); }
+    /** 門市 POS 機的共用帳號。 */
+    public static boolean isPos(Staff staff) { return "POS".equals(staff.level()); }
+    public Staff actor(String username) { return orders.actor(username); }
 
     public Staff requireManager(String username) {
         var staff = orders.actor(username);

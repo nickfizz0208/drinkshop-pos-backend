@@ -6,7 +6,7 @@ CREATE TABLE staff_account (
   username VARCHAR(50) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   name VARCHAR(50) NOT NULL,
-  level ENUM('TRAINEE','STAFF','MANAGER','HQ') NOT NULL,
+  level ENUM('TRAINEE','STAFF','POS','MANAGER','HQ') NOT NULL,
   pin_hash VARCHAR(255) NULL,
   active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
@@ -56,7 +56,7 @@ CREATE TABLE product (
   hot_allowed BOOLEAN NOT NULL DEFAULT TRUE,
   recipe_steps TEXT NOT NULL,
   recipe_json JSON NOT NULL,
-  min_view_level ENUM('TRAINEE','STAFF','MANAGER','HQ') NOT NULL DEFAULT 'TRAINEE',
+  min_view_level ENUM('TRAINEE','STAFF','POS','MANAGER','HQ') NOT NULL DEFAULT 'TRAINEE',
   on_sale BOOLEAN NOT NULL DEFAULT TRUE,
   CHECK (base_price >= 0 AND large_extra >= 0)
 );
@@ -262,3 +262,17 @@ CREATE TABLE schedule_week (
   FOREIGN KEY (published_by) REFERENCES staff_account(staff_id)
 );
 CREATE INDEX idx_staff_schedule_date ON staff_schedule(work_date, staff_id);
+
+CREATE TABLE staff_schedule_published (
+  published_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  work_date DATE NOT NULL,
+  staff_id BIGINT NOT NULL,
+  template_id BIGINT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  note VARCHAR(100) NULL,
+  FOREIGN KEY (staff_id) REFERENCES staff_account(staff_id),
+  FOREIGN KEY (template_id) REFERENCES shift_template(template_id),
+  CHECK (end_time > start_time)
+);
+CREATE INDEX idx_schedule_published_date ON staff_schedule_published(work_date);

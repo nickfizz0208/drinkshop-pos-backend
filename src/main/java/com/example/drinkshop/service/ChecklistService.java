@@ -19,6 +19,7 @@ import java.util.List;
 /**
  * 檢查表：工作項目由店長以上管理；打勾時記錄「做事的人」（前端選擇的 staffId），不是登入帳號。
  * 打勾的人必須是目前在班的人（shift_staff 今天還沒打卡下班）。
+ * 個人帳號只能記自己、只能取消自己的紀錄；POS 共用帳號可替在班的人打勾；店長、總部可取消任何紀錄。
  */
 @Service
 @Transactional
@@ -84,21 +85,34 @@ public class ChecklistService {
         }).toList();
     }
 
-    public RecordResponse check(CreateRecord request) {
+    public RecordResponse check(CreateRecord request, String username) {
+        var actor = shiftStaff.actor(username);
+        long staffId;
+        if (ShiftStaffService.isPos(actor)) {
+            if (request.staffId() == null) throw ApiException.bad("請選擇做這件事的人");
+            staffId = request.staffId();
+        } else {
+            if (request.staffId() != null && request.staffId() != actor.id())
+                throw new ApiException(org.springframework.http.HttpStatus.FORBIDDEN, "只能記錄自己做的事");
+            staffId = actor.id();
+        }
         var item = findItem(request.itemId());
         if (!item.isActive()) throw ApiException.conflict("此工作項目已停用");
-        shiftStaff.requireActiveStaff(request.staffId());
-        if (!shiftStaff.isOnDuty(request.staffId())) throw ApiException.conflict("這位員工目前不在班，請先打卡上班");
+        shiftStaff.requireActiveStaff(staffId);
+        if (!shiftStaff.isOnDuty(staffId)) throw ApiException.conflict("目前不在班，請先在 POS 機打卡上班");
         var now = LocalDateTime.now(clock);
-        var record = new ChecklistRecord(item.getId(), request.staffId(),
+        var record = new ChecklistRecord(item.getId(), staffId,
             period(item.getFrequency(), now.toLocalDate()), now);
         return toResponse(records.saveAndFlush(record));
     }
 
-    /** 取消打勾：直接刪除該筆紀錄。 */
-    public void uncheck(long recordId) {
+    /** 取消打勾：直接刪除該筆紀錄。個人帳號只能取消自己的。 */
+    public void uncheck(long recordId, String username) {
+        var actor = shiftStaff.actor(username);
         var record = records.findById(recordId)
             .orElseThrow(() -> ApiException.missing("找不到這筆打勾紀錄"));
+        if (!ShiftStaffService.isPos(actor) && !shiftStaff.isManager(actor) && !record.getStaffId().equals(actor.id()))
+            throw new ApiException(org.springframework.http.HttpStatus.FORBIDDEN, "只能取消自己的紀錄");
         records.delete(record);
     }
 

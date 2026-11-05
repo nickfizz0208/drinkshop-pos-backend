@@ -31,14 +31,26 @@ public class ShiftStaffController {
     @PostMapping("/clock-out")
     Response clockOut(@Valid @RequestBody Clock request) { return service.clockOut(request.staffId()); }
 
+    /** GET /api/shift-staff/today：今天開班狀態＋打卡紀錄（打卡頁用） */
+    @GetMapping("/today")
+    Today today(Principal principal) { return service.todayStatus(principal.getName()); }
+
+    /** GET /api/shift-staff/mine?month=2026-11（不填為本月）：自己的打卡紀錄 */
+    @GetMapping("/mine")
+    List<Response> mine(@RequestParam(name = "month", required = false)
+                        @DateTimeFormat(pattern = "yyyy-MM") java.time.YearMonth month, Principal principal) {
+        return service.mine(month, principal.getName());
+    }
+
     /** GET /api/shift-staff/on-duty：目前在班的人（checklist 選人用） */
     @GetMapping("/on-duty")
     List<Response> onDuty() { return service.onDuty(); }
 
-    /** GET /api/shift-staff?date=YYYY-MM-DD（不填為今天）：當天全部打卡紀錄 */
+    /** GET /api/shift-staff?date=YYYY-MM-DD（不填為今天）：店長看全部，其他人只看自己的 */
     @GetMapping
-    List<Response> list(@RequestParam(name = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        return service.list(date);
+    List<Response> list(@RequestParam(name = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+                        Principal principal) {
+        return service.list(date, principal.getName());
     }
 
     /** PUT /api/shift-staff/{id} { clockInAt, clockOutAt }：店長修改 */

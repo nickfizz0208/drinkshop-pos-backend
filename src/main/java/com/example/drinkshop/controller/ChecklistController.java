@@ -48,17 +48,17 @@ public class ChecklistController {
         return checklist.board(date);
     }
 
-    /** POST /api/checklist/records { itemId, staffId } */
+    /** POST /api/checklist/records { itemId, staffId? }：POS 帳號要帶 staffId，個人帳號記成自己 */
     @PostMapping("/records")
     @ResponseStatus(HttpStatus.CREATED)
-    RecordResponse check(@Valid @RequestBody CreateRecord request) {
-        return checklist.check(request);
+    RecordResponse check(@Valid @RequestBody CreateRecord request, Principal principal) {
+        return checklist.check(request, principal.getName());
     }
 
     /** DELETE /api/checklist/records/{recordId} */
     @DeleteMapping("/records/{recordId}")
-    Map<String, Object> uncheck(@PathVariable("recordId") long recordId) {
-        checklist.uncheck(recordId);
+    Map<String, Object> uncheck(@PathVariable("recordId") long recordId, Principal principal) {
+        checklist.uncheck(recordId, principal.getName());
         return Map.of("success", true);
     }
 }

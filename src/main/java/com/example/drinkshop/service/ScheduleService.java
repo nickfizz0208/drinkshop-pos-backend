@@ -1,10 +1,12 @@
 package com.example.drinkshop.service;
 
 import com.example.drinkshop.dto.ScheduleDtos.*;
+import com.example.drinkshop.entity.PublishedSchedule;
 import com.example.drinkshop.entity.ScheduleWeek;
 import com.example.drinkshop.entity.ShiftTemplate;
 import com.example.drinkshop.entity.StaffSchedule;
 import com.example.drinkshop.exception.ApiException;
+import com.example.drinkshop.repository.PublishedScheduleRepository;
 import com.example.drinkshop.repository.ScheduleWeekRepository;
 import com.example.drinkshop.repository.ShiftTemplateRepository;
 import com.example.drinkshop.repository.StaffScheduleRepository;
@@ -15,8 +17,11 @@ import java.time.*;
 import java.util.*;
 
 /**
- * 排班：班別與排班的新增、修改、刪除、發布、複製上週都限店長以上；員工只看得到已發布的週。
- * 同一人同一天時段重疊只提醒（warnings），不擋下。發布後修改直接生效，並標記 modifiedAfterPublish。
+ * 排班：班別與排班的新增、修改、刪除、發布、複製上週都限店長以上。
+ * 店長編輯的是草稿（staff_schedule）；員工只看已發布版本（staff_schedule_published）。
+ * 按發布時把整週草稿複製成已發布版本，所以發布後的修改要再按一次發布，員工才看得到。
+ * modifiedAfterPublish = 已發布的週有尚未發布的修改。
+ * 同一人同一天時段重疊：存檔只提醒（warnings，方便調整），發布時擋下（409），必須先修正。
  */
 @Service
 @Transactional
@@ -26,13 +31,15 @@ public class ScheduleService {
     private final ShiftTemplateRepository templates;
     private final StaffScheduleRepository schedules;
     private final ScheduleWeekRepository weeks;
+    private final PublishedScheduleRepository published;
     private final ShiftStaffService staff;
     private final OrderService orders;
     private final Clock clock;
 
     public ScheduleService(ShiftTemplateRepository templates, StaffScheduleRepository schedules,
-                           ScheduleWeekRepository weeks, ShiftStaffService staff, OrderService orders, Clock clock) {
-        this.templates = templates; this.schedules = schedules; this.weeks = weeks;
+                           ScheduleWeekRepository weeks, PublishedScheduleRepository published,
+                           ShiftStaffService staff, OrderService orders, Clock clock) {
+        this.templates = templates; this.schedules = schedules; this.weeks = weeks; this.published = published;
         this.staff = staff; this.orders = orders; this.clock = clock;
     }
 
@@ -72,16 +79,26 @@ public class ScheduleService {
         boolean manager = MANAGER_LEVELS.contains(orders.actor(username).level());
         var start = weekStart(date == null ? LocalDate.now(clock) : date);
         var end = start.plusDays(6);
-        var published = weeks.findById(start);
-        List<StaffSchedule> rows = (manager || published.isPresent())
-            ? schedules.findByWorkDateBetweenOrderByWorkDateAscStartTimeAscIdAsc(start, end) : List.of();
+        var week = weeks.findById(start);
         var names = templateNames();
-        var entries = rows.stream().map(s -> toResponse(s, names)).toList();
-        var warnings = manager ? overlapWarnings(rows) : List.<String>of();
-        return new WeekResponse(start, end, published.isPresent(),
-            published.map(ScheduleWeek::getPublishedAt).orElse(null),
-            published.map(ScheduleWeek::getPublishedBy).orElse(null),
-            published.map(ScheduleWeek::isModifiedAfterPublish).orElse(false),
+        List<EntryResponse> entries;
+        List<String> warnings;
+        if (manager) {
+            // 店長看草稿
+            var rows = schedules.findByWorkDateBetweenOrderByWorkDateAscStartTimeAscIdAsc(start, end);
+            entries = rows.stream().map(s -> toResponse(s, names)).toList();
+            warnings = overlapWarnings(rows);
+        } else {
+            // 員工只看已發布版本；未發布的週是空的
+            entries = week.isEmpty() ? List.of()
+                : published.findByWorkDateBetweenOrderByWorkDateAscStartTimeAscIdAsc(start, end)
+                    .stream().map(p -> toResponse(p, names)).toList();
+            warnings = List.of();
+        }
+        return new WeekResponse(start, end, week.isPresent(),
+            week.map(ScheduleWeek::getPublishedAt).orElse(null),
+            week.map(ScheduleWeek::getPublishedBy).orElse(null),
+            manager && week.map(ScheduleWeek::isModifiedAfterPublish).orElse(false),
             manager, entries, warnings);
     }
 
@@ -116,10 +133,18 @@ public class ScheduleService {
 
     // ---------- 發布、複製上週 ----------
 
-    /** 發布（或重新發布）該週；重新發布會清除「發布後已修改」標記。 */
+    /** 發布該週：把整週草稿複製成已發布版本（覆蓋舊版），並清除「有尚未發布的修改」標記。 */
     public WeekResponse publish(LocalDate date, String username) {
         var manager = staff.requireManager(username);
         var start = weekStart(date == null ? LocalDate.now(clock) : date);
+        var end = start.plusDays(6);
+        var drafts = schedules.findByWorkDateBetweenOrderByWorkDateAscStartTimeAscIdAsc(start, end);
+        var overlaps = overlapWarnings(drafts);
+        if (!overlaps.isEmpty())
+            throw ApiException.conflict("本週有 " + overlaps.size() + " 個時段重疊，請先修正再發布");
+        published.deleteWeek(start, end);
+        published.saveAll(drafts.stream().map(PublishedSchedule::new).toList());
+        published.flush();
         var week = weeks.findById(start).orElseGet(() -> new ScheduleWeek(start));
         week.publish(manager.id(), LocalDateTime.now(clock));
         weeks.saveAndFlush(week);
@@ -152,7 +177,7 @@ public class ScheduleService {
         return new SaveResult(toResponse(entry, templateNames()), overlapWarnings(sameDay));
     }
 
-    /** 已發布的週有任何修改，就標記「發布後已修改」。 */
+    /** 已發布的週草稿有任何修改，就標記「有尚未發布的修改」。 */
     private void markModified(LocalDate weekStart) {
         weeks.findById(weekStart).ifPresent(w -> { w.markModified(); weeks.save(w); });
     }
@@ -183,8 +208,9 @@ public class ScheduleService {
                 var a = rows.get(i); var b = rows.get(j);
                 if (a.getStaffId().equals(b.getStaffId()) && a.getWorkDate().equals(b.getWorkDate())
                         && a.getStartTime().isBefore(b.getEndTime()) && b.getStartTime().isBefore(a.getEndTime())) {
-                    warnings.add(String.format("%s %s 的班時段重疊（%s–%s、%s–%s）",
-                        a.getWorkDate(), staff.staffName(a.getStaffId()),
+                    // 例：11月05日班表 POS 測試店員 時段重疊（10:00–13:00、10:00–18:00）
+                    warnings.add(String.format("%d月%d日班表 %s 時段重疊\n（%s–%s、%s–%s）",
+                        a.getWorkDate().getMonthValue(), a.getWorkDate().getDayOfMonth(), staff.staffName(a.getStaffId()),
                         a.getStartTime(), a.getEndTime(), b.getStartTime(), b.getEndTime()));
                 }
             }
@@ -203,6 +229,13 @@ public class ScheduleService {
     }
 
     private static String blankToNull(String s) { return s == null || s.isBlank() ? null : s.trim(); }
+
+    /** 已發布版本沒有修改時間；scheduleId 為已發布紀錄的編號（員工畫面不會用來編輯）。 */
+    private EntryResponse toResponse(PublishedSchedule p, Map<Long, String> names) {
+        return new EntryResponse(p.getId(), p.getWorkDate(), p.getStaffId(), staff.staffName(p.getStaffId()),
+            p.getTemplateId(), p.getTemplateId() == null ? null : names.get(p.getTemplateId()),
+            p.getStartTime(), p.getEndTime(), p.getNote(), null);
+    }
 
     private EntryResponse toResponse(StaffSchedule s, Map<Long, String> names) {
         return new EntryResponse(s.getId(), s.getWorkDate(), s.getStaffId(), staff.staffName(s.getStaffId()),

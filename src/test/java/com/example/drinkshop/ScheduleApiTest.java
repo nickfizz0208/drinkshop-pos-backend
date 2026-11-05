@@ -133,6 +133,12 @@ class ScheduleApiTest {
         asManager(get("/api/schedule/week?date=" + WEEK), null)
                 .andExpect(jsonPath("$.entries", hasSize(4)))
                 .andExpect(jsonPath("$.warnings", hasSize(1)));
+
+        // 有重疊不能發布
+        asManager(post("/api/schedule/week/publish?date=" + WEEK), null)
+                .andExpect(status().isConflict());
+        mvc.perform(get("/api/schedule/week?date=" + WEEK).with(httpBasic("p_staff", PASSWORD)))
+                .andExpect(jsonPath("$.published").value(false));
     }
 
     @Test
@@ -158,15 +164,34 @@ class ScheduleApiTest {
         mvc.perform(get("/api/schedule/week?date=" + WEEK).with(httpBasic("p_staff", PASSWORD)))
                 .andExpect(jsonPath("$.entries", hasSize(1)));
 
-        // 發布後修改：直接生效並標記
+        // 發布後修改：員工看到的仍是舊版，店長看到「有尚未發布的修改」
         asManager(delete("/api/schedule/entries/" + id), null).andExpect(status().isOk());
+        asManager(post("/api/schedule/entries"), "{\"workDate\":\"2026-11-12\",\"staffId\":10,\"startTime\":\"18:00\",\"endTime\":\"21:00\"}")
+                .andExpect(status().isCreated());
         mvc.perform(get("/api/schedule/week?date=" + WEEK).with(httpBasic("p_staff", PASSWORD)))
-                .andExpect(jsonPath("$.entries", hasSize(0)))
+                .andExpect(jsonPath("$.entries", hasSize(1)))
+                .andExpect(jsonPath("$.entries[0].workDate").value("2026-11-10"))
+                .andExpect(jsonPath("$.modifiedAfterPublish").value(false));   // 員工不會看到這個標記
+        asManager(get("/api/schedule/week?date=" + WEEK), null)
+                .andExpect(jsonPath("$.entries", hasSize(1)))
+                .andExpect(jsonPath("$.entries[0].workDate").value("2026-11-12"))
                 .andExpect(jsonPath("$.modifiedAfterPublish").value(true));
 
-        // 重新發布清除標記
+        // 再發布：員工看到新版，標記清除
         asManager(post("/api/schedule/week/publish?date=" + WEEK), null)
                 .andExpect(jsonPath("$.modifiedAfterPublish").value(false));
+        mvc.perform(get("/api/schedule/week?date=" + WEEK).with(httpBasic("p_staff", PASSWORD)))
+                .andExpect(jsonPath("$.entries", hasSize(1)))
+                .andExpect(jsonPath("$.entries[0].workDate").value("2026-11-12"));
+
+        // 刪光後發布：員工看到空白週
+        long id2 = mapper.readTree(asManager(get("/api/schedule/week?date=" + WEEK), null)
+                .andReturn().getResponse().getContentAsString()).get("entries").get(0).get("scheduleId").asLong();
+        asManager(delete("/api/schedule/entries/" + id2), null).andExpect(status().isOk());
+        asManager(post("/api/schedule/week/publish?date=" + WEEK), null).andExpect(status().isOk());
+        mvc.perform(get("/api/schedule/week?date=" + WEEK).with(httpBasic("p_staff", PASSWORD)))
+                .andExpect(jsonPath("$.published").value(true))
+                .andExpect(jsonPath("$.entries", hasSize(0)));
     }
 
     @Test

@@ -30,6 +30,8 @@ public class DemoDataConfig {
             new TransactionTemplate(transactions).executeWithoutResult(tx -> {
                 add(repo,encoder,"staff","POS 測試店員","STAFF",password);
                 add(repo,encoder,"manager","POS 測試店長","MANAGER",password);
+                // 門市 POS 機的共用帳號（需先執行 database/014_pos_level.sql）
+                add(repo,encoder,"pos","門市 POS","POS",password);
                 long cashier=repo.staff("staff").orElseThrow().id();
                 if (repo.rows("SELECT business_date FROM daily_shift WHERE business_date=?",LocalDate.now(clock)).isEmpty())
                     repo.update("INSERT INTO daily_shift(business_date,status,opened_by,opened_at,petty_cash,roles_json) VALUES (?,'OPEN',?,?,2000,'[]')",
