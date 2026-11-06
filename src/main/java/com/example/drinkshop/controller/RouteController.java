@@ -17,7 +17,7 @@ public class RouteController {
 
     /** 會員的外送路線；會員還沒有座標時，先由地址自動計算並存回（GEOCODE）。 */
     @GetMapping("/members/{phone}/route")
-    DeliveryRoute memberRoute(@PathVariable String phone) { return members.route(phone); }
+    DeliveryRoute memberRoute(@PathVariable("phone") String phone) { return members.route(phone); }
 
     /** 任意終點的路線（「只用於這張單」的臨時位置）。 */
     @PostMapping("/route")

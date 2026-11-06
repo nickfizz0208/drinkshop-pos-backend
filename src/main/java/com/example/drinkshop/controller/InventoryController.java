@@ -45,7 +45,7 @@ public class InventoryController {
      * GET /api/inventories/{inventoryId}
      */
     @GetMapping("/{inventoryId}")
-    public ResponseEntity<Inventory> getInventoryById(@PathVariable Long inventoryId) {
+    public ResponseEntity<Inventory> getInventoryById(@PathVariable("inventoryId") Long inventoryId) {
         return ResponseEntity.ok(inventoryService.getInventoryById(inventoryId));
     }
 
@@ -64,7 +64,7 @@ public class InventoryController {
      */
     @PutMapping("/{inventoryId}/stock")
     public ResponseEntity<Inventory> updateStock(
-            @PathVariable Long inventoryId,
+            @PathVariable("inventoryId") Long inventoryId,
             @Valid @RequestBody StockQuantityRequest request) {
         Inventory inventory = inventoryService.updateStock(inventoryId, request.quantity());
         return ResponseEntity.ok(inventory);
@@ -76,7 +76,7 @@ public class InventoryController {
      */
     @PostMapping("/{inventoryId}/deduct")
     public ResponseEntity<Inventory> deductStock(
-            @PathVariable Long inventoryId,
+            @PathVariable("inventoryId") Long inventoryId,
             @Valid @RequestBody StockQuantityRequest request) {
         Inventory inventory = inventoryService.deductStock(inventoryId, request.quantity());
         return ResponseEntity.ok(inventory);
@@ -88,7 +88,7 @@ public class InventoryController {
      */
     @PostMapping("/{inventoryId}/report")
     public ResponseEntity<Inventory> reportStock(
-            @PathVariable Long inventoryId,
+            @PathVariable("inventoryId") Long inventoryId,
             @Valid @RequestBody StockQuantityRequest request,
             Principal principal) {
         Long staffId = resolveStaffId(request.staffId(), principal);
@@ -114,7 +114,7 @@ public class InventoryController {
      * GET /api/inventories/toppings/{toppingId}
      */
     @GetMapping("/toppings/{toppingId}")
-    public ResponseEntity<Topping> getToppingById(@PathVariable Long toppingId) {
+    public ResponseEntity<Topping> getToppingById(@PathVariable("toppingId") Long toppingId) {
         return ResponseEntity.ok(inventoryService.getToppingById(toppingId));
     }
 
@@ -124,8 +124,8 @@ public class InventoryController {
      */
     @PutMapping("/toppings/{toppingId}/status")
     public ResponseEntity<Topping> updateToppingSaleStatus(
-            @PathVariable Long toppingId,
-            @RequestParam Boolean onSale) {
+            @PathVariable("toppingId") Long toppingId,
+            @RequestParam("onSale") Boolean onSale) {
         Topping topping = inventoryService.updateToppingSaleStatus(toppingId, onSale);
         return ResponseEntity.ok(topping);
     }

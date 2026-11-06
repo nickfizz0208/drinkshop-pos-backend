@@ -63,7 +63,7 @@ class MemberApiTest {
         }
         jdbc.execute("DROP ALL OBJECTS");
         new ResourceDatabasePopulator(new ClassPathResource("schema-h2.sql"),new ClassPathResource("data-h2.sql")).execute(dataSource);
-        jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (10,'test_staff',?,'測試員工','STAFF',TRUE)",passwords.encode(PASSWORD));
+        jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (10,'test_staff',?,'門市 POS','POS',TRUE)",passwords.encode(PASSWORD));
         jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (11,'test_manager',?,'測試店長','MANAGER',TRUE)",passwords.encode(PASSWORD));
     }
 

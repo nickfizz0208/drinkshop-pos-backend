@@ -95,6 +95,12 @@ public class DailyShiftService {
         // 4. 計算現金短溢差額 (實際清點現金 - 理論應有現金)
         BigDecimal actualCounted = countedCash != null ? countedCash : BigDecimal.ZERO;
         BigDecimal diffAmount = actualCounted.subtract(expectedCash);
+        // 資料庫規定（daily_shift 的 CHECK）：現金短少時一定要填差異原因。先檢查，避免寫入時才失敗變成 500
+        if (diffAmount.signum() < 0 && (diffReason == null || diffReason.isBlank())) {
+            throw com.example.drinkshop.exception.ApiException.bad(
+                "現金短少 $" + diffAmount.negate().stripTrailingZeros().toPlainString()
+                + "（應有 $" + expectedCash.stripTrailingZeros().toPlainString() + "），請填寫差異原因");
+        }
 
         // 5. 更新 DailyShift 資料庫記錄狀態並儲存（依 DB 規範，CLOSED 班次 revenue_by_payment 不可為 null）
         shift.setStatus("CLOSED");
@@ -122,6 +128,28 @@ public class DailyShiftService {
                 totalCups,
                 diffReason
         );
+    }
+
+    /**
+     * 重新開班（取消關班、接續營業）
+     * 清掉關班結果（關班人員、時間、杯數、應有／清點現金、差異原因），開班人員、開班時間與零用金維持原本的。
+     * 之後再關班會重新計算整天的營收與現金。
+     */
+    public DailyShift reopenShift(LocalDate businessDate) {
+        DailyShift shift = dailyShiftRepository.findById(businessDate)
+                .orElseThrow(() -> new IllegalStateException("營業日 [" + businessDate + "] 還沒開班"));
+        if (!"CLOSED".equalsIgnoreCase(shift.getStatus())) {
+            throw new IllegalStateException("營業日 [" + businessDate + "] 還在營業中");
+        }
+        shift.setStatus("OPEN");
+        shift.setClosedBy(null);
+        shift.setClosedAt(null);
+        shift.setCups(null);
+        shift.setExpectedCash(null);
+        shift.setCountedCash(null);
+        shift.setDiffReason(null);
+        shift.setRevenueByPayment(null);
+        return dailyShiftRepository.save(shift);
     }
 
     /**

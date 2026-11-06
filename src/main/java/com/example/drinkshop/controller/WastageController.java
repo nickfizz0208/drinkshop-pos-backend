@@ -58,7 +58,7 @@ public class WastageController {
      */
     @PostMapping("/order-item/{itemId}")
     public ResponseEntity<OrderItem> recordOrderItemWastage(
-            @PathVariable Long itemId,
+            @PathVariable("itemId") Long itemId,
             @RequestBody Map<String, String> payload,
             Principal principal) {
         String reason = payload != null ? payload.getOrDefault("reason", "損耗報廢") : "損耗報廢";
@@ -74,7 +74,7 @@ public class WastageController {
      */
     @GetMapping("/daily-summary")
     public ResponseEntity<DailyWastageSummaryResponse> getDailyWastageSummary(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+            @RequestParam(name = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         LocalDate targetDate = date != null ? date : LocalDate.now();
         DailyWastageSummaryResponse summary = wastageService.getDailyWastageSummary(targetDate);
         return ResponseEntity.ok(summary);

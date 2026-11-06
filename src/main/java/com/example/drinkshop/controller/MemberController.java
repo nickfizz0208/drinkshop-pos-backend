@@ -14,10 +14,10 @@ public class MemberController {
     public MemberController(MemberService members) { this.members = members; }
 
     @GetMapping
-    List<Response> search(@RequestParam(required = false) String keyword) { return members.search(keyword); }
+    List<Response> search(@RequestParam(name = "keyword", required = false) String keyword) { return members.search(keyword); }
 
     @GetMapping("/{phone}")
-    Response get(@PathVariable String phone) { return members.get(phone); }
+    Response get(@PathVariable("phone") String phone) { return members.get(phone); }
 
     @PostMapping
     Response create(@Valid @RequestBody Create request, Principal principal) {
@@ -25,16 +25,16 @@ public class MemberController {
     }
 
     @PutMapping("/{phone}")
-    Response update(@PathVariable String phone, @Valid @RequestBody Update request, Principal principal) {
+    Response update(@PathVariable("phone") String phone, @Valid @RequestBody Update request, Principal principal) {
         return members.update(phone, request, principal.getName());
     }
 
     @DeleteMapping("/{phone}")
-    Map<String, Object> delete(@PathVariable String phone, Principal principal) {
+    Map<String, Object> delete(@PathVariable("phone") String phone, Principal principal) {
         members.delete(phone, principal.getName());
         return Map.of("success", true);
     }
 
     @GetMapping("/{phone}/orders")
-    List<Map<String, Object>> orders(@PathVariable String phone) { return members.orders(phone); }
+    List<Map<String, Object>> orders(@PathVariable("phone") String phone) { return members.orders(phone); }
 }

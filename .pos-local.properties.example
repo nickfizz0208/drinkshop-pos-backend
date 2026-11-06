@@ -3,7 +3,8 @@
 POS_DB_URL=jdbc:mysql://<host>.aivencloud.com:<port>/drinkshop_pos?sslMode=REQUIRED&serverTimezone=Asia/Taipei&characterEncoding=UTF-8
 POS_DB_USERNAME=avnadmin
 POS_DB_PASSWORD=<見共用文件>
-# 啟動時建立 staff／manager 測試帳號並開今天的班；沒有這兩行就無法登入與點餐。
+# 啟動時建立 staff／manager／pos 測試帳號（需先執行 database/014_pos_level.sql）；沒有這兩行就無法登入。
+# 不會自動開班：用 pos 帳號登入後，在畫面上選擇開班人員開班。
 # 全組請使用共用文件上的同一個密碼（至少 6 碼）。
 pos.demo.enabled=true
 pos.demo.password=123456

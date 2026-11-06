@@ -51,6 +51,7 @@ class ShiftStaffApiTest {
         jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (11,'s_manager',?,'測試店長','MANAGER',TRUE)", passwords.encode(PASSWORD));
         jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (12,'s_left',?,'離職員工','STAFF',FALSE)", passwords.encode(PASSWORD));
         jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (13,'s_other',?,'其他員工','STAFF',TRUE)", passwords.encode(PASSWORD));
+        jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (14,'s_pos',?,'門市 POS','POS',TRUE)", passwords.encode(PASSWORD));
     }
 
     private void openToday() {
@@ -59,7 +60,8 @@ class ShiftStaffApiTest {
     }
 
     private org.springframework.test.web.servlet.ResultActions clock(String action, long staffId) throws Exception {
-        return mvc.perform(post("/api/shift-staff/" + action).with(httpBasic("s_staff", PASSWORD))
+        // 上下班打卡只限 POS 共用帳號
+        return mvc.perform(post("/api/shift-staff/" + action).with(httpBasic("s_pos", PASSWORD))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"staffId\":" + staffId + "}"));
     }
 
@@ -89,12 +91,12 @@ class ShiftStaffApiTest {
                 .andExpect(jsonPath("$.onDuty").value(true));
         // 還在班不能重複上班打卡
         clock("clock-in", 10).andExpect(status().isConflict());
-        mvc.perform(get("/api/shift-staff/on-duty").with(httpBasic("s_staff", PASSWORD)))
+        mvc.perform(get("/api/shift-staff/on-duty").with(httpBasic("s_pos", PASSWORD)))
                 .andExpect(jsonPath("$", hasSize(1)));
 
         clock("clock-out", 10).andExpect(status().isOk()).andExpect(jsonPath("$.onDuty").value(false));
         clock("clock-out", 10).andExpect(status().isConflict());
-        mvc.perform(get("/api/shift-staff/on-duty").with(httpBasic("s_staff", PASSWORD)))
+        mvc.perform(get("/api/shift-staff/on-duty").with(httpBasic("s_pos", PASSWORD)))
                 .andExpect(jsonPath("$", hasSize(0)));
 
         // 同一天可以再上班
@@ -128,6 +130,27 @@ class ShiftStaffApiTest {
                 .andExpect(jsonPath("$.records", hasSize(3)));
         mvc.perform(get("/api/shift-staff").with(httpBasic("s_manager", PASSWORD)))
                 .andExpect(jsonPath("$", hasSize(3)));
+    }
+
+    // 權限分級：打卡、看在班只限 POS；自己的打卡紀錄 POS 不能看
+    @Test
+    void clockIsPosOnlyAndRecordsAreForPersonalAccounts() throws Exception {
+        openToday();
+        for (String user : java.util.List.of("s_staff", "s_manager")) {
+            mvc.perform(post("/api/shift-staff/clock-in").with(httpBasic(user, PASSWORD))
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"staffId\":10}"))
+                    .andExpect(status().isForbidden());
+            mvc.perform(get("/api/shift-staff/on-duty").with(httpBasic(user, PASSWORD)))
+                    .andExpect(status().isForbidden());
+        }
+        for (String path : java.util.List.of("/api/shift-staff/mine", "/api/shift-staff")) {
+            mvc.perform(get(path).with(httpBasic("s_pos", PASSWORD))).andExpect(status().isForbidden());
+            mvc.perform(get(path).with(httpBasic("s_staff", PASSWORD))).andExpect(status().isOk());
+        }
+        // 今日狀態 POS 也要用（打卡畫面判斷開班、在班）
+        mvc.perform(get("/api/shift-staff/today").with(httpBasic("s_pos", PASSWORD)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.shiftStatus").value("OPEN"));
     }
 
     @Test

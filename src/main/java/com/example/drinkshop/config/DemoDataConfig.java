@@ -10,8 +10,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import java.time.Clock;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 
 /**
  * 示範用啟動初始化，只有 pos.demo.enabled=true 才執行，會寫入目前設定的資料庫。
@@ -32,10 +30,7 @@ public class DemoDataConfig {
                 add(repo,encoder,"manager","POS 測試店長","MANAGER",password);
                 // 門市 POS 機的共用帳號（需先執行 database/014_pos_level.sql）
                 add(repo,encoder,"pos","門市 POS","POS",password);
-                long cashier=repo.staff("staff").orElseThrow().id();
-                if (repo.rows("SELECT business_date FROM daily_shift WHERE business_date=?",LocalDate.now(clock)).isEmpty())
-                    repo.update("INSERT INTO daily_shift(business_date,status,opened_by,opened_at,petty_cash,roles_json) VALUES (?,'OPEN',?,?,2000,'[]')",
-                        LocalDate.now(clock),cashier,LocalDateTime.now(clock));
+                // 不再自動開班：用 pos 帳號登入後，在畫面上選擇開班人員開班
             });
         };
     }

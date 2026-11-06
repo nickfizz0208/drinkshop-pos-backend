@@ -63,7 +63,7 @@ class PosIntegrationTest {
         }
         jdbc.execute("DROP ALL OBJECTS");
         new ResourceDatabasePopulator(new ClassPathResource("schema-h2.sql"),new ClassPathResource("data-h2.sql")).execute(dataSource);
-        jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (10,'test_staff',?,'測試員工','STAFF',TRUE)",passwords.encode(PASSWORD));
+        jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (10,'test_staff',?,'門市 POS','POS',TRUE)",passwords.encode(PASSWORD));
         jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,pin_hash,active) VALUES (11,'test_manager',?,'測試店長','MANAGER',?,TRUE)",passwords.encode(PASSWORD),passwords.encode("654321"));
         Path photos=Path.of("build/test-photos");
         if(Files.isDirectory(photos)) try(var files=Files.list(photos)) {
@@ -109,6 +109,21 @@ class PosIntegrationTest {
         mvc.perform(get("/swagger-ui/swagger-ui-bundle.js")).andExpect(status().isOk());
         mvc.perform(get("/api/menu")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/menu").with(httpBasic("test_staff",PASSWORD))).andExpect(status().isOk());
+    }
+    // 權限分級：櫃台作業只限 POS 共用帳號，店長、一般員工的個人帳號都是 403
+    @Test void counterWorkIsPosOnly() throws Exception {
+        jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (12,'test_clerk',?,'一般員工','STAFF',TRUE)",passwords.encode(PASSWORD));
+        for(String user:List.of("test_clerk","test_manager")) {
+            mvc.perform(get("/api/orders").with(httpBasic(user,PASSWORD))).andExpect(status().isForbidden());
+            mvc.perform(post("/api/orders").with(httpBasic(user,PASSWORD)).contentType("application/json").content("{}")).andExpect(status().isForbidden());
+            mvc.perform(get("/api/daily-shifts/2026-01-01").with(httpBasic(user,PASSWORD))).andExpect(status().isForbidden());
+            mvc.perform(post("/api/daily-shifts/open").with(httpBasic(user,PASSWORD)).contentType("application/json").content("{}")).andExpect(status().isForbidden());
+            mvc.perform(get("/api/members").with(httpBasic(user,PASSWORD))).andExpect(status().isForbidden());
+            mvc.perform(post("/api/route").with(httpBasic(user,PASSWORD)).contentType("application/json").content("{\"lat\":22.6,\"lng\":120.3}")).andExpect(status().isForbidden());
+        }
+        mvc.perform(get("/api/orders").with(httpBasic("test_staff",PASSWORD))).andExpect(status().isOk());
+        // 菜單、登入資訊不分級
+        mvc.perform(get("/api/menu").with(httpBasic("test_clerk",PASSWORD))).andExpect(status().isOk());
     }
     @Test void requiresAuthenticationAndRejectsDisabledAccounts() throws Exception {
         mvc.perform(get("/api/menu")).andExpect(status().isUnauthorized());
