@@ -214,4 +214,75 @@ class ScheduleApiTest {
         asManager(post("/api/schedule/week/copy-previous?date=2026-12-02"), null)
                 .andExpect(status().isConflict());
     }
+
+    // ---------- 標籤 ----------
+
+    @Test
+    void defaultTagsAndOnlyManagerCanManageTags() throws Exception {
+        // 預設四個標籤，所有登入帳號都能看；休息有說明
+        mvc.perform(get("/api/schedule/tags").with(httpBasic("p_staff", PASSWORD)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(4)))
+                .andExpect(jsonPath("$[0].name").value("開班"))
+                .andExpect(jsonPath("$[3].name").value("休息"))
+                .andExpect(jsonPath("$[3].description").value("這段班可以中間休息半小時"));
+        // 一般員工不能新增
+        mvc.perform(post("/api/schedule/tags").with(httpBasic("p_staff", PASSWORD))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"外送\"}"))
+                .andExpect(status().isForbidden());
+        // 店長新增、改名、停用
+        var body = asManager(post("/api/schedule/tags"), "{\"name\":\" 外送 \",\"description\":\"  \"}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("外送"))
+                .andExpect(jsonPath("$.description").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+        long id = mapper.readTree(body).get("tagId").asLong();
+        asManager(put("/api/schedule/tags/" + id), "{\"name\":\"外送支援\",\"description\":\"負責外送單\",\"active\":false}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active").value(false));
+        // 停用的不在預設清單，includeInactive 才看得到
+        mvc.perform(get("/api/schedule/tags").with(httpBasic("p_staff", PASSWORD)))
+                .andExpect(jsonPath("$", hasSize(4)));
+        mvc.perform(get("/api/schedule/tags?includeInactive=true").with(httpBasic("p_staff", PASSWORD)))
+                .andExpect(jsonPath("$", hasSize(5)));
+    }
+
+    @Test
+    void entryTagsAreSavedPublishedAndCopied() throws Exception {
+        // 多個標籤：去重、依編號排序；時間必填
+        asManager(post("/api/schedule/entries"), "{\"workDate\":\"2026-11-03\",\"staffId\":10,\"startTime\":\"08:00\",\"endTime\":\"16:00\",\"tagIds\":[4,1,4]}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entry.tagIds[0]").value(1))
+                .andExpect(jsonPath("$.entry.tagIds[1]").value(4))
+                .andExpect(jsonPath("$.entry.tagNames[0]").value("開班"))
+                .andExpect(jsonPath("$.entry.tagNames[1]").value("休息"));
+        asManager(post("/api/schedule/entries"), "{\"workDate\":\"2026-11-03\",\"staffId\":11,\"tagIds\":[3]}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("請填寫上班與下班時間"));
+        // 不存在的標籤
+        asManager(post("/api/schedule/entries"), "{\"workDate\":\"2026-11-03\",\"staffId\":11,\"startTime\":\"16:00\",\"endTime\":\"22:00\",\"tagIds\":[99]}")
+                .andExpect(status().isBadRequest());
+        // 沒有標籤也可以
+        asManager(post("/api/schedule/entries"), "{\"workDate\":\"2026-11-03\",\"staffId\":11,\"startTime\":\"16:00\",\"endTime\":\"22:00\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entry.tagIds", hasSize(0)));
+
+        // 發布後員工看得到標籤
+        asManager(post("/api/schedule/week/publish?date=2026-11-03"), null).andExpect(status().isOk());
+        mvc.perform(get("/api/schedule/week?date=2026-11-03").with(httpBasic("p_staff", PASSWORD)))
+                .andExpect(jsonPath("$.entries[0].tagNames[0]").value("開班"))
+                .andExpect(jsonPath("$.entries[0].tagNames[1]").value("休息"));
+
+        // 複製上週帶著標籤
+        asManager(post("/api/schedule/week/copy-previous?date=" + WEEK), null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries[0].workDate").value("2026-11-10"))
+                .andExpect(jsonPath("$.entries[0].tagIds[1]").value(4));
+
+        // 改標籤名稱：舊班表顯示新名稱
+        asManager(put("/api/schedule/tags/4"), "{\"name\":\"可休息\",\"description\":\"這段班可以中間休息半小時\",\"active\":true}")
+                .andExpect(status().isOk());
+        asManager(get("/api/schedule/week?date=2026-11-03"), null)
+                .andExpect(jsonPath("$.entries[0].tagNames[1]").value("可休息"));
+    }
 }

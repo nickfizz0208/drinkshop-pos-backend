@@ -276,3 +276,13 @@ CREATE TABLE staff_schedule_published (
   CHECK (end_time > start_time)
 );
 CREATE INDEX idx_schedule_published_date ON staff_schedule_published(work_date);
+
+-- 015：排班標籤
+CREATE TABLE schedule_tag (
+  tag_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(20) NOT NULL,
+  description VARCHAR(100) NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE
+);
+ALTER TABLE staff_schedule ADD COLUMN tag_ids VARCHAR(200) NULL;
+ALTER TABLE staff_schedule_published ADD COLUMN tag_ids VARCHAR(200) NULL;

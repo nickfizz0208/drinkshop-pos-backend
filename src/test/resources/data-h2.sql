@@ -79,3 +79,8 @@ UPDATE inventory SET book_qty=book_qty-1 WHERE inventory_id=8;
 UPDATE inventory SET unit_cost=CASE inventory_id WHEN 1 THEN 0.80 WHEN 2 THEN 1.00 WHEN 3 THEN 3.00 WHEN 4 THEN 3.00 WHEN 5 THEN 6.00 WHEN 6 THEN 3.00 WHEN 7 THEN 2.50 WHEN 8 THEN 12.50 END WHERE inventory_id BETWEEN 1 AND 8;
 
 UPDATE order_item SET refund_amount=qty*unit_price WHERE status IN ('CANCELLED','WASTED');
+
+-- 015：預設排班標籤（編號 1～4）
+INSERT INTO schedule_tag (tag_id, name, description) VALUES
+ (1,'開班',NULL),(2,'支援',NULL),(3,'收班',NULL),(4,'休息','這段班可以中間休息半小時');
+ALTER TABLE schedule_tag ALTER COLUMN tag_id RESTART WITH 5;

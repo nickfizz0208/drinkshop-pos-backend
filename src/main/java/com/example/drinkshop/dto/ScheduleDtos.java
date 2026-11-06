@@ -1,5 +1,6 @@
 package com.example.drinkshop.dto;
 
+import com.example.drinkshop.entity.ScheduleTag;
 import com.example.drinkshop.entity.ShiftTemplate;
 import jakarta.validation.constraints.*;
 import java.time.LocalDate;
@@ -21,13 +22,28 @@ public final class ScheduleDtos {
         }
     }
 
+    // ---------- 標籤（取代班別；不帶時間，一段班可以貼多個） ----------
+    public record CreateTag(@NotBlank @Size(max = 20) String name, @Size(max = 100) String description) {}
+    public record UpdateTag(@NotBlank @Size(max = 20) String name, @Size(max = 100) String description,
+                            @NotNull Boolean active) {}
+    public record TagResponse(Long tagId, String name, String description, boolean active) {
+        public static TagResponse from(ScheduleTag t) {
+            return new TagResponse(t.getId(), t.getName(), t.getDescription(), t.isActive());
+        }
+    }
+
     // ---------- 排班 ----------
-    /** 有 templateId 時，未填的 startTime／endTime 取班別時間；沒有 templateId 時兩個時間必填。 */
+    /**
+     * 有 templateId 時，未填的 startTime／endTime 取班別時間；沒有 templateId 時兩個時間必填。
+     * tagIds：這段班的標籤（選填，可以多個）。templateId 是舊功能，前端已改用標籤。
+     */
     public record SaveEntry(@NotNull LocalDate workDate, @NotNull Long staffId, Long templateId,
-                            LocalTime startTime, LocalTime endTime, @Size(max = 100) String note) {}
+                            LocalTime startTime, LocalTime endTime, @Size(max = 100) String note,
+                            @Size(max = 10) List<Long> tagIds) {}
+    /** tagIds 與 tagNames 順序相同（依標籤編號排序）。 */
     public record EntryResponse(Long scheduleId, LocalDate workDate, Long staffId, String staffName,
                                 Long templateId, String templateName, LocalTime startTime, LocalTime endTime,
-                                String note, LocalDateTime updatedAt) {}
+                                String note, LocalDateTime updatedAt, List<Long> tagIds, List<String> tagNames) {}
     /** 新增／修改的結果；warnings 只是提醒（例如同一人時段重疊），不會擋下。 */
     public record SaveResult(EntryResponse entry, List<String> warnings) {}
 

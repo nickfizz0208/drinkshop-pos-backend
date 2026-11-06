@@ -24,6 +24,10 @@ public class StaffSchedule {
     private LocalTime endTime;
     @Column(length = 100)
     private String note;
+
+    /** 標籤編號，以逗號分隔，例如 "1,4"；沒有標籤為 null。 */
+    @Column(name = "tag_ids", length = 200)
+    private String tagIds;
     @Column(name = "created_by", nullable = false, updatable = false)
     private Long createdBy;
     @Column(name = "updated_at", nullable = false)
@@ -50,6 +54,8 @@ public class StaffSchedule {
     public void setEndTime(LocalTime endTime) { this.endTime = endTime; }
     public String getNote() { return note; }
     public void setNote(String note) { this.note = note; }
+    public String getTagIds() { return tagIds; }
+    public void setTagIds(String tagIds) { this.tagIds = tagIds; }
     public Long getCreatedBy() { return createdBy; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }

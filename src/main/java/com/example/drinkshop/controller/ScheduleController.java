@@ -41,6 +41,25 @@ public class ScheduleController {
         return service.updateTemplate(id, request, principal.getName());
     }
 
+    /** GET /api/schedule/tags?includeInactive=true（排班標籤，所有登入帳號都能看） */
+    @GetMapping("/tags")
+    List<TagResponse> tags(@RequestParam(name = "includeInactive", defaultValue = "false") boolean includeInactive) {
+        return service.listTags(includeInactive);
+    }
+
+    /** POST /api/schedule/tags { name, description }（店長、總部） */
+    @PostMapping("/tags")
+    @ResponseStatus(HttpStatus.CREATED)
+    TagResponse createTag(@Valid @RequestBody CreateTag request, Principal principal) {
+        return service.createTag(request, principal.getName());
+    }
+
+    /** PUT /api/schedule/tags/{id} { name, description, active }（店長、總部） */
+    @PutMapping("/tags/{id}")
+    TagResponse updateTag(@PathVariable("id") long id, @Valid @RequestBody UpdateTag request, Principal principal) {
+        return service.updateTag(id, request, principal.getName());
+    }
+
     /** GET /api/schedule/week?date=YYYY-MM-DD（不填為本週） */
     @GetMapping("/week")
     WeekResponse week(@RequestParam(name = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,

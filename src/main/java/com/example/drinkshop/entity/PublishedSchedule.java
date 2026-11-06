@@ -24,11 +24,15 @@ public class PublishedSchedule {
     @Column(length = 100)
     private String note;
 
+    @Column(name = "tag_ids", length = 200)
+    private String tagIds;
+
     protected PublishedSchedule() {}
     /** 從草稿複製一份。 */
     public PublishedSchedule(StaffSchedule draft) {
         this.workDate = draft.getWorkDate(); this.staffId = draft.getStaffId(); this.templateId = draft.getTemplateId();
         this.startTime = draft.getStartTime(); this.endTime = draft.getEndTime(); this.note = draft.getNote();
+        this.tagIds = draft.getTagIds();
     }
 
     public Long getId() { return id; }
@@ -38,4 +42,5 @@ public class PublishedSchedule {
     public LocalTime getStartTime() { return startTime; }
     public LocalTime getEndTime() { return endTime; }
     public String getNote() { return note; }
+    public String getTagIds() { return tagIds; }
 }
