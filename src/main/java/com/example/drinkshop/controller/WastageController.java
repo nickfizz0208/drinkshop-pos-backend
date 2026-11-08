@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
 import java.time.LocalDate;
-import java.util.Map;
 
 /**
  * 報廢損耗管理控制器（處理原料報廢登記、單杯飲品作廢與當日報廢損耗統計）
@@ -26,10 +25,11 @@ public class WastageController {
 
     private final WastageService wastageService;
     private final PosRepository posRepository;
+    private final java.time.Clock clock;
 
-    public WastageController(WastageService wastageService, PosRepository posRepository) {
+    public WastageController(WastageService wastageService, PosRepository posRepository, java.time.Clock clock) {
         this.wastageService = wastageService;
-        this.posRepository = posRepository;
+        this.posRepository = posRepository; this.clock = clock;
     }
 
     /**
@@ -41,7 +41,7 @@ public class WastageController {
             @Valid @RequestBody RawMaterialWastageRequest request,
             Principal principal) {
         if (request.inventoryId() == null) {
-            throw new IllegalArgumentException("原料庫存編號 (inventoryId) 不能為空");
+            throw com.example.drinkshop.exception.ApiException.bad("原料庫存編號不能為空");
         }
         Long staffId = currentStaffId(principal);
 
@@ -61,12 +61,12 @@ public class WastageController {
     @PostMapping("/order-item/{itemId}")
     public ResponseEntity<OrderItem> recordOrderItemWastage(
             @PathVariable("itemId") Long itemId,
-            @RequestBody Map<String, String> payload,
+            @Valid @RequestBody com.example.drinkshop.dto.OrderRequests.Cancel request,
             Principal principal) {
-        String reason = payload != null ? payload.getOrDefault("reason", "損耗報廢") : "損耗報廢";
-        Long staffId = currentStaffId(principal);
+        // 確認登入帳號仍在職；實際紀錄的操作人由訂單服務以登入帳號寫入
+        currentStaffId(principal);
 
-        OrderItem item = wastageService.recordOrderItemWastage(itemId, reason, staffId);
+        OrderItem item = wastageService.recordOrderItemWastage(itemId, request.reason(), request.refundAmount(), principal.getName());
         return ResponseEntity.ok(item);
     }
 
@@ -77,7 +77,7 @@ public class WastageController {
     @GetMapping("/daily-summary")
     public ResponseEntity<DailyWastageSummaryResponse> getDailyWastageSummary(
             @RequestParam(name = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        LocalDate targetDate = date != null ? date : LocalDate.now();
+        LocalDate targetDate = date != null ? date : LocalDate.now(clock);
         DailyWastageSummaryResponse summary = wastageService.getDailyWastageSummary(targetDate);
         return ResponseEntity.ok(summary);
     }
@@ -90,4 +90,3 @@ public class WastageController {
                 .orElseThrow(() -> ApiException.unauthorized("員工帳號已停用"));
     }
 }
-

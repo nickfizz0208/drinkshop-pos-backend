@@ -100,3 +100,7 @@ SQL 僅以獨立的 POS 資料庫為目標。
 本機已備份並套用 007 收款與損耗欄位，現有訂單筆數與庫存保留。升級說明見 [PAYMENT_AND_WASTAGE.md](../docs/PAYMENT_AND_WASTAGE.md)。
 
 組員啟動與 007 升級步驟請見 [TEAM_QUICKSTART.md](../docs/TEAM_QUICKSTART.md)。目前已製作棄單不需店長帳號或 PIN；approved_by 記錄有效登入操作員工，舊假資料仍保留歷史值。
+
+## 原料報廢修正（尚未套用共用庫）
+
+`009_raw_material_wastage.sql` 新增原料損耗事件表，須由資料庫負責人先確認；不可自行對 Aiven 執行。預設未啟用寫入，不會自動建表。行為及啟用步驟見 [CLOSING_WASTAGE_FIX.md](../docs/CLOSING_WASTAGE_FIX.md)。

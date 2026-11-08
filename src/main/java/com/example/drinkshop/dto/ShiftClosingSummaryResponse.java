@@ -22,7 +22,7 @@ public record ShiftClosingSummaryResponse(
         // 當日報廢總損失成本
         BigDecimal totalWastageCost,
 
-        // 系統理論應有現金金額（零用金 + 營收 - 損耗）
+        // 系統理論應有現金金額（零用金 + 現金實收 - 現金退款）
         BigDecimal expectedCash,
 
         // 關班實際清點之現金金額
@@ -35,6 +35,8 @@ public record ShiftClosingSummaryResponse(
         Integer totalCups,
 
         // 現金短溢原因說明
-        String diffReason
+        String diffReason,
+        boolean costComplete,
+        boolean rawWastageEnabled
 ) {}
 

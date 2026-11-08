@@ -140,4 +140,3 @@ public class InventoryController {
                 .orElseThrow(() -> ApiException.unauthorized("員工帳號已停用"));
     }
 }
-

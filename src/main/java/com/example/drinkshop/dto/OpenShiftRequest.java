@@ -25,7 +25,7 @@ public record OpenShiftRequest(
         @Size(max = 500, message = "崗位設定不可超過 500 字元")
         String rolesJson,
 
-        // 開班員工編號（選填，若未填則後端自動以當前登入店員為準）
+        // 舊版相容欄位；後端忽略此值，實際操作人以登入帳號為準
         Long staffId
 ) {
     public OpenShiftRequest(BigDecimal pettyCash, String rolesJson) {

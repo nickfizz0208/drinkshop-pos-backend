@@ -31,6 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {
         "spring.config.import=",
         "pos.demo.enabled=false",
+        "pos.raw-wastage.enabled=true",
         "spring.datasource.url=jdbc:h2:mem:pos_new_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000",
         "spring.datasource.driver-class-name=org.h2.Driver",
         "spring.datasource.username=sa",
@@ -58,8 +59,19 @@ public class NewModulesIntegrationTest {
     @Autowired
     private ObjectMapper mapper;
 
+    @org.springframework.boot.test.context.TestConfiguration
+    static class TestClock {
+        @org.springframework.context.annotation.Bean @org.springframework.context.annotation.Primary
+        java.time.Clock fixedClock() {
+            return java.time.Clock.fixed(java.time.Instant.parse("2026-10-28T03:00:00Z"),java.time.ZoneId.of("Asia/Taipei"));
+        }
+    }
+
     @BeforeEach
     void resetDatabase() {
+        try (var connection=dataSource.getConnection()) {
+            org.junit.jupiter.api.Assertions.assertTrue(connection.getMetaData().getURL().startsWith("jdbc:h2:mem:"));
+        } catch (java.sql.SQLException ex) { throw new RuntimeException(ex); }
         jdbc.execute("DROP ALL OBJECTS");
         ResourceDatabasePopulator populator = new ResourceDatabasePopulator(
                 new ClassPathResource("schema-h2.sql"),
@@ -272,9 +284,9 @@ public class NewModulesIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(wasteReq)))
                 .andExpect(status().isOk());
-        // 通報人是目前登入的帳號（staff_id 10），不是前端指定的人
+        // 通報人是目前登入的帳號（staff_id 10），不是前端指定的人；記在原料損耗紀錄，不改盤點欄位
         org.junit.jupiter.api.Assertions.assertEquals(10L,
-                jdbc.queryForObject("SELECT reported_by FROM inventory WHERE inventory_id=1", Long.class));
+                jdbc.queryForObject("SELECT reported_by FROM raw_material_wastage WHERE inventory_id=1", Long.class));
         // 前端多帶 staffId 想冒用別人：直接拒絕
         mockMvc.perform(post("/api/wastages/raw-material")
                         .with(login(TEST_USER, TEST_PASS))
@@ -287,6 +299,7 @@ public class NewModulesIntegrationTest {
                         .with(login(TEST_USER, TEST_PASS)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalWastedCount").exists())
-                .andExpect(jsonPath("$.totalWastageCost").exists());
+                .andExpect(jsonPath("$.costComplete").value(false))
+                .andExpect(jsonPath("$.rawMaterialWastages[0].reason").value("過期變質"));
     }
 }

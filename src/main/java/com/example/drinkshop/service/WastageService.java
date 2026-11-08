@@ -1,127 +1,108 @@
 package com.example.drinkshop.service;
 
-import com.example.drinkshop.dto.DailyWastageSummaryResponse;
-import com.example.drinkshop.dto.OrderItemDto;
+import com.example.drinkshop.dto.*;
 import com.example.drinkshop.entity.Inventory;
 import com.example.drinkshop.entity.OrderItem;
-import com.example.drinkshop.exception.ResourceNotFoundException;
+import com.example.drinkshop.exception.ApiException;
 import com.example.drinkshop.repository.OrderItemRepository;
+import com.example.drinkshop.repository.PosRepository;
+import jakarta.persistence.EntityManager;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.util.ArrayList;
-import java.util.List;
+import java.math.RoundingMode;
+import java.time.*;
+import java.util.*;
 
-/**
- * 報廢損耗管理服務（處理原料報廢登記、單杯飲品作廢與當日損耗成本統計）
- */
 @Service
-@Transactional
+@Transactional(isolation = Isolation.READ_COMMITTED)
 public class WastageService {
+    private final InventoryService inventory;
+    private final OrderItemRepository items;
+    private final OrderService orders;
+    private final PosRepository repo;
+    private final EntityManager em;
+    private final Clock clock;
+    private final boolean rawEnabled;
 
-    private final InventoryService inventoryService;
-    private final OrderItemRepository orderItemRepository;
-
-    public WastageService(InventoryService inventoryService, OrderItemRepository orderItemRepository) {
-        this.inventoryService = inventoryService;
-        this.orderItemRepository = orderItemRepository;
+    public WastageService(InventoryService inventory, OrderItemRepository items, OrderService orders,
+            PosRepository repo, EntityManager em, Clock clock,
+            @Value("${pos.raw-wastage.enabled:false}") boolean rawEnabled) {
+        this.inventory=inventory; this.items=items; this.orders=orders; this.repo=repo;
+        this.em=em; this.clock=clock; this.rawEnabled=rawEnabled;
     }
 
-    /**
-     * 原料報廢登記（例如過期牛奶、煮壞茶湯、打翻茶葉等）
-     * 連動扣除 Inventory 帳面庫存數量，並記錄通報人員與時間
-     */
-    public Inventory recordRawMaterialWastage(Long inventoryId, BigDecimal wastageQty, String reason, Long staffId) {
-        if (wastageQty == null || wastageQty.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("報廢數量必須大於 0");
-        }
-        // 1. 自動扣除庫存（若庫存不足會拋出 InsufficientStockException）
-        Inventory updatedInventory = inventoryService.deductStock(inventoryId, wastageQty);
-
-        // 2. 記錄最後報廢通報人員與時間
-        updatedInventory.setReportedQty(updatedInventory.getBookQty());
-        updatedInventory.setReportedBy(staffId);
-        updatedInventory.setReportedAt(LocalDateTime.now());
-
-        return updatedInventory;
+    public Inventory recordRawMaterialWastage(Long id, BigDecimal quantity, String reason, Long staffId) {
+        // 共用庫未獲同意升級前不扣庫存，避免出現扣了料卻沒有損耗紀錄的半成品操作。
+        if (!rawEnabled) throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
+            "原料損耗紀錄尚未啟用，請先由資料庫負責人確認 009 升級");
+        if (id==null || id<=0 || quantity==null || quantity.signum()<=0 || quantity.scale()>2)
+            throw ApiException.bad("請填寫原料編號與大於零、最多兩位小數的數量");
+        if (reason==null || reason.isBlank() || reason.trim().length()>255) throw ApiException.bad("請填寫 255 字內的損耗原因");
+        LocalDate date=LocalDate.now(clock);
+        var shift=repo.rows("SELECT status FROM daily_shift WHERE business_date=? FOR UPDATE",date);
+        if (shift.isEmpty() || !"OPEN".equals(shift.getFirst().get("status")))
+            throw ApiException.conflict("當日未開班或已日結，不能登記原料損耗");
+        Inventory updated=inventory.deductStock(id,quantity);
+        BigDecimal unitCost=updated.getUnitCost();
+        BigDecimal cost=unitCost==null?null:Money.checked(unitCost.multiply(quantity).setScale(2,RoundingMode.HALF_UP));
+        // 與扣料共用同筆交易；資料表不存在或紀錄寫入失敗，扣料也會回滾。
+        repo.insert("wastage_id", """
+            INSERT INTO raw_material_wastage(business_date,inventory_id,quantity,unit_cost,material_cost,reason,reported_by,reported_at)
+            VALUES (?,?,?,?,?,?,?,?)
+            """,date,id,quantity,unitCost,cost,reason.trim(),staffId,LocalDateTime.now(clock));
+        return updated; // 報廢不是盤點，不改 reported_qty/reported_by 等盤點欄位。
     }
 
-    /**
-     * 訂單飲品單品項報廢作廢（例如做錯甜度冰塊、客訴重做等）
-     * 將 OrderItem 狀態更新為 WASTED，並記錄原因與審核主管員工編號
-     */
-    public OrderItem recordOrderItemWastage(Long itemId, String reason, Long staffId) {
-        if (reason == null || reason.trim().isEmpty()) {
-            throw new IllegalArgumentException("作廢原因不能為空");
-        }
-
-        OrderItem orderItem = orderItemRepository.findById(itemId)
-                .orElseThrow(() -> new ResourceNotFoundException("查無指定的訂單明細，ID: " + itemId));
-
-        orderItem.setStatus("WASTED");
-        orderItem.setReason(reason);
-        orderItem.setApprovedBy(staffId);
-        orderItem.setUpdatedAt(LocalDateTime.now());
-
-        return orderItemRepository.save(orderItem);
+    public OrderItem recordOrderItemWastage(Long itemId, String reason, BigDecimal refundAmount, String username) {
+        // 所有狀態、退款、總單金額與庫存規則統一交給原有訂單交易，禁止直接改明細狀態。
+        orders.recordWastage(itemId, new OrderRequests.Cancel(reason,null,null,
+            refundAmount==null?Money.ZERO:refundAmount), username);
+        OrderItem item=items.findById(itemId).orElseThrow(() -> ApiException.missing("找不到訂單明細"));
+        em.refresh(item); // JDBC 更新後重新取得 JPA 實體，避免回傳舊狀態。
+        return item;
     }
 
-    /**
-     * 每日報廢統計摘要：統計指定日期所有作廢飲品之總杯數與損失總成本
-     */
     @Transactional(readOnly = true)
     public DailyWastageSummaryResponse getDailyWastageSummary(LocalDate date) {
-        LocalDateTime startOfDay = date.atStartOfDay();
-        LocalDateTime endOfDay = date.atTime(LocalTime.MAX);
-
-        List<OrderItem> wastedItems = orderItemRepository.findByStatusAndCreatedAtBetween("WASTED", startOfDay, endOfDay);
-
-        int totalCount = 0;
-        BigDecimal totalCost = BigDecimal.ZERO;
-        List<OrderItemDto> wastedItemDtos = new ArrayList<>();
-
-        for (OrderItem item : wastedItems) {
-            int qty = (item.getQty() != null ? item.getQty() : 1);
-            totalCount += qty;
-
-            if (item.getMaterialCost() != null) {
-                totalCost = totalCost.add(item.getMaterialCost());
-            } else if (item.getUnitPrice() != null) {
-                // 若無精確原料成本，以飲品單價 * 數量作為估算損耗成本
-                totalCost = totalCost.add(item.getUnitPrice().multiply(BigDecimal.valueOf(qty)));
-            }
-            wastedItemDtos.add(toDto(item));
+        var wasted=new ArrayList<OrderItemDto>();
+        BigDecimal total=Money.ZERO;
+        boolean complete=true;
+        int cups=0;
+        // 使用總單的營業日，不用明細插入時間，以免跨日或匯入的歷史資料被算錯天。
+        for (var row:repo.rows("""
+            SELECT i.* FROM order_item i JOIN pos_order o ON o.order_id=i.order_id
+            WHERE o.business_date=? AND i.status='WASTED' ORDER BY i.item_id
+            """,date)) {
+            OrderItem item=items.findById(PosRepository.number(row,"item_id")).orElseThrow();
+            cups+=item.getQty();
+            if (item.getMaterialCost()==null) complete=false;
+            else total=total.add(item.getMaterialCost()); // material_cost 已是這筆明細全部杯數的成本。
+            wasted.add(new OrderItemDto(item.getItemId(),item.getOrderId(),item.getProductId(),item.getProductName(),
+                item.getSize(),item.getTemperature(),item.getSugar(),item.getIce(),item.getQty(),item.getUnitPrice(),
+                item.getStatus(),item.getNote(),item.getCreatedAt()));
         }
-
-        return new DailyWastageSummaryResponse(date, totalCount, totalCost, wastedItemDtos);
+        var raw=new ArrayList<RawMaterialWastageResponse>();
+        if (rawEnabled) for (var row:repo.rows(
+                "SELECT * FROM raw_material_wastage WHERE business_date=? ORDER BY wastage_id", date)) {
+            BigDecimal cost=decimal(row,"material_cost");
+            if (cost==null) complete=false; else total=total.add(cost);
+            raw.add(new RawMaterialWastageResponse(PosRepository.number(row,"wastage_id"),date,
+                PosRepository.number(row,"inventory_id"),decimal(row,"quantity"),decimal(row,"unit_cost"),cost,
+                row.get("reason").toString(),PosRepository.number(row,"reported_by"),
+                timestamp(row.get("reported_at"))));
+        }
+        // NULL 明確表示無法給完整成本；前端可用 costComplete 顯示「成本未建檔」。
+        return new DailyWastageSummaryResponse(date,cups,complete?total:null,wasted,complete,rawEnabled,raw);
     }
-
-    /**
-     * Entity 轉為扁平化 DTO
-     */
-    private OrderItemDto toDto(OrderItem item) {
-        if (item == null) {
-            return null;
-        }
-        return new OrderItemDto(
-                item.getItemId(),
-                item.getOrderId(),
-                item.getProductId(),
-                item.getProductName(),
-                item.getSize(),
-                item.getTemperature(),
-                item.getSugar(),
-                item.getIce(),
-                item.getQty(),
-                item.getUnitPrice(),
-                item.getStatus(),
-                item.getNote(),
-                item.getCreatedAt()
-        );
+    private static LocalDateTime timestamp(Object value) {
+        // 不同 JDBC 驅動可能回傳 Timestamp 或 LocalDateTime。
+        return value instanceof java.sql.Timestamp ts ? ts.toLocalDateTime() : (LocalDateTime)value;
+    }
+    private static BigDecimal decimal(Map<String,Object> row,String key) {
+        return row.get(key)==null?null:new BigDecimal(row.get(key).toString());
     }
 }
-

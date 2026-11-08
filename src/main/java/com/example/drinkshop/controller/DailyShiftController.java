@@ -26,10 +26,11 @@ public class DailyShiftController {
 
     private final DailyShiftService dailyShiftService;
     private final PosRepository posRepository;
+    private final java.time.Clock clock;
 
-    public DailyShiftController(DailyShiftService dailyShiftService, PosRepository posRepository) {
+    public DailyShiftController(DailyShiftService dailyShiftService, PosRepository posRepository, java.time.Clock clock) {
         this.dailyShiftService = dailyShiftService;
-        this.posRepository = posRepository;
+        this.posRepository = posRepository; this.clock = clock;
     }
 
     /**
@@ -40,7 +41,7 @@ public class DailyShiftController {
     public ResponseEntity<DailyShift> openShift(
             @Valid @RequestBody OpenShiftRequest request,
             Principal principal) {
-        LocalDate date = request.businessDate() != null ? request.businessDate() : LocalDate.now();
+        LocalDate date = request.businessDate() != null ? request.businessDate() : LocalDate.now(clock);
         // 開班一定要選「誰開的」：開班 API 只限 POS 共用帳號呼叫，而 POS 帳號不是人，
         // 所以開班人員必須由畫面選擇，而且要是在職的員工本人
         Long staffId = requirePerson(request.staffId(), "開班");
@@ -62,7 +63,7 @@ public class DailyShiftController {
     public ResponseEntity<ShiftClosingSummaryResponse> closeShift(
             @Valid @RequestBody CloseShiftRequest request,
             Principal principal) {
-        LocalDate date = request.businessDate() != null ? request.businessDate() : LocalDate.now();
+        LocalDate date = request.businessDate() != null ? request.businessDate() : LocalDate.now(clock);
         // 關班和開班一樣，要選「誰關的」，必須是在職員工本人
         Long staffId = requirePerson(request.staffId(), "關班");
 
@@ -83,7 +84,7 @@ public class DailyShiftController {
      */
     @PostMapping("/reopen")
     public ResponseEntity<DailyShift> reopenShift(@RequestBody(required = false) ReopenShiftRequest request) {
-        LocalDate date = request != null && request.businessDate() != null ? request.businessDate() : LocalDate.now();
+        LocalDate date = request != null && request.businessDate() != null ? request.businessDate() : LocalDate.now(clock);
         try {
             return ResponseEntity.ok(dailyShiftService.reopenShift(date));
         } catch (IllegalStateException notClosed) {
@@ -118,4 +119,3 @@ public class DailyShiftController {
     }
 
 }
-

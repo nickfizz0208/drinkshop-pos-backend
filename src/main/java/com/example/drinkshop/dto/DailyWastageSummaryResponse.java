@@ -18,6 +18,9 @@ public record DailyWastageSummaryResponse(
         BigDecimal totalWastageCost,
 
         // 當日報廢品項明細清單
-        List<OrderItemDto> wastedItems
+        List<OrderItemDto> wastedItems,
+        boolean costComplete,
+        boolean rawWastageEnabled,
+        List<RawMaterialWastageResponse> rawMaterialWastages
 ) {}
 
