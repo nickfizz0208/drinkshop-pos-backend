@@ -3,6 +3,8 @@ package com.example.drinkshop.controller;
 import com.example.drinkshop.dto.StockQuantityRequest;
 import com.example.drinkshop.entity.Inventory;
 import com.example.drinkshop.entity.Topping;
+import com.example.drinkshop.entity.Staff;
+import com.example.drinkshop.exception.ApiException;
 import com.example.drinkshop.repository.PosRepository;
 import com.example.drinkshop.service.InventoryService;
 import jakarta.validation.Valid;
@@ -91,7 +93,7 @@ public class InventoryController {
             @PathVariable("inventoryId") Long inventoryId,
             @Valid @RequestBody StockQuantityRequest request,
             Principal principal) {
-        Long staffId = resolveStaffId(request.staffId(), principal);
+        Long staffId = currentStaffId(principal);
         Inventory inventory = inventoryService.reportStock(inventoryId, request.quantity(), staffId);
         return ResponseEntity.ok(inventory);
     }
@@ -130,16 +132,12 @@ public class InventoryController {
         return ResponseEntity.ok(topping);
     }
 
-    private Long resolveStaffId(Long requestedStaffId, Principal principal) {
-        if (requestedStaffId != null && requestedStaffId > 0) {
-            return requestedStaffId;
-        }
-        if (principal != null) {
-            return posRepository.staff(principal.getName())
-                    .map(s -> s.id())
-                    .orElse(1L);
-        }
-        return 1L;
+    // 經手人一律是目前登入的帳號，不接受前端指定，避免冒用別人的名義
+    private Long currentStaffId(Principal principal) {
+        return posRepository.staff(principal.getName())
+                .filter(Staff::active)
+                .map(Staff::id)
+                .orElseThrow(() -> ApiException.unauthorized("員工帳號已停用"));
     }
 }
 

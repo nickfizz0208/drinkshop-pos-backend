@@ -1,9 +1,14 @@
 package com.example.drinkshop.config;
 
 import com.example.drinkshop.repository.PosRepository;
+import com.example.drinkshop.security.JwtAuthenticationFilter;
+import com.example.drinkshop.security.JwtService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.ProviderManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -11,10 +16,11 @@ import org.springframework.security.core.userdetails.*;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.*;
 import java.util.List;
 
-/** 員工登入與 API 權限：目前使用 HTTP Basic，每次請求帶帳密，不是 JWT。 */
+/** 員工登入與 API 權限：POST /api/auth/login 用帳密換 JWT，之後每次請求帶 Authorization: Bearer <token>。 */
 @Configuration
 public class SecurityConfig {
     @Bean PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
@@ -26,6 +32,12 @@ public class SecurityConfig {
                 .roles(staff.level()).disabled(!staff.active()).build();
         };
     }
+    // 登入 API 用：以員工資料表 + BCrypt 驗證帳密（只在登入時比對一次，之後靠 token）
+    @Bean AuthenticationManager authenticationManager(UserDetailsService users, PasswordEncoder encoder) {
+        var provider = new DaoAuthenticationProvider(users);
+        provider.setPasswordEncoder(encoder);
+        return new ProviderManager(provider);
+    }
     // 允許這兩個本機 Angular 網址跨來源呼叫；CORS 不等於登入授權。
     @Bean CorsConfigurationSource cors() {
         var cors = new CorsConfiguration();
@@ -36,22 +48,24 @@ public class SecurityConfig {
         var source = new UrlBasedCorsConfigurationSource(); source.registerCorsConfiguration("/api/**",cors);
         return source;
     }
-    // STATELESS：後端不靠登入 Session；文件、health 與預檢免登入，其餘 /api 都需驗證。
+    // STATELESS：後端不靠登入 Session；文件、health、登入與預檢免登入，其餘 /api 都需驗證。
     // 這版 API 由前端明確帶 Authorization，不使用 Cookie Session，CSRF 設定依此設計。
-    @Bean SecurityFilterChain security(HttpSecurity http) throws Exception {
+    @Bean SecurityFilterChain security(HttpSecurity http, JwtService jwt, UserDetailsService users) throws Exception {
         return http.csrf(c -> c.disable()).cors(Customizer.withDefaults())
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .httpBasic(b -> b.authenticationEntryPoint((request,response,ex) -> {
+            .addFilterBefore(new JwtAuthenticationFilter(jwt, users), UsernamePasswordAuthenticationFilter.class)
+            .exceptionHandling(e -> e.authenticationEntryPoint((request,response,ex) -> {
+                // 沒帶 token、token 過期或竄改、帳號已停用
                 response.setStatus(401); response.setContentType("application/json;charset=UTF-8");
-                response.getWriter().write("{\"success\":false,\"message\":\"請使用有效的員工帳號登入\"}");
-            }))
-            .exceptionHandling(e -> e.accessDeniedHandler((request,response,ex) -> {
+                response.getWriter().write("{\"success\":false,\"message\":\"請重新登入\"}");
+            }).accessDeniedHandler((request,response,ex) -> {
                 response.setStatus(403); response.setContentType("application/json;charset=UTF-8");
                 response.getWriter().write("{\"success\":false,\"message\":\"沒有操作權限\"}");
             }))
             .authorizeHttpRequests(a -> a
                 .requestMatchers(HttpMethod.OPTIONS,"/**").permitAll()
                 .requestMatchers("/api/health").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                 .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**", "/v3/api-docs.yaml").permitAll()
                 // 刪除會員：只限店長、總部（MemberService 也會再檢查一次）
                 .requestMatchers(HttpMethod.DELETE, "/api/members/*").hasAnyRole("MANAGER", "HQ")

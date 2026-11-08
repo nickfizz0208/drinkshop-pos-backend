@@ -29,7 +29,7 @@ import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.*;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static com.example.drinkshop.TestLogin.login;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -77,16 +77,16 @@ class PosIntegrationTest {
         return new Create(UUID.randomUUID(),Source.TAKE_OUT,Payment.LINE_PAY,null,null,null,null,null,null,List.of(items));
     }
     private JsonNode create(Create request) throws Exception {
-        return json.readTree(mvc.perform(post("/api/orders").with(httpBasic("test_staff",PASSWORD))
+        return json.readTree(mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD))
             .contentType("application/json").content(json.writeValueAsBytes(request)))
             .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
     }
     private org.springframework.test.web.servlet.ResultActions cancel(long order,long item,String manager,String pin) throws Exception {
-        return mvc.perform(post("/api/orders/"+order+"/items/"+item+"/cancel").with(httpBasic("test_staff",PASSWORD))
+        return mvc.perform(post("/api/orders/"+order+"/items/"+item+"/cancel").with(login("test_staff",PASSWORD))
             .contentType("application/json").content(json.writeValueAsBytes(new Cancel("測試取消",manager,pin))));
     }
     private org.springframework.test.web.servlet.ResultActions state(long order,long item,ItemStatus next) throws Exception {
-        return mvc.perform(post("/api/orders/"+order+"/items/"+item+"/status").with(httpBasic("test_staff",PASSWORD))
+        return mvc.perform(post("/api/orders/"+order+"/items/"+item+"/status").with(login("test_staff",PASSWORD))
             .contentType("application/json").content(json.writeValueAsBytes(new ChangeStatus(next))));
     }
     private double stock(long id) { return jdbc.queryForObject("SELECT book_qty FROM inventory WHERE inventory_id=?",Double.class,id); }
@@ -108,38 +108,38 @@ class PosIntegrationTest {
             .andExpect(content().contentTypeCompatibleWith("text/html"));
         mvc.perform(get("/swagger-ui/swagger-ui-bundle.js")).andExpect(status().isOk());
         mvc.perform(get("/api/menu")).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/menu").with(httpBasic("test_staff",PASSWORD))).andExpect(status().isOk());
+        mvc.perform(get("/api/menu").with(login("test_staff",PASSWORD))).andExpect(status().isOk());
     }
     // 權限分級：櫃台作業只限 POS 共用帳號，店長、一般員工的個人帳號都是 403
     @Test void counterWorkIsPosOnly() throws Exception {
         jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (12,'test_clerk',?,'一般員工','STAFF',TRUE)",passwords.encode(PASSWORD));
         for(String user:List.of("test_clerk","test_manager")) {
-            mvc.perform(get("/api/orders").with(httpBasic(user,PASSWORD))).andExpect(status().isForbidden());
-            mvc.perform(post("/api/orders").with(httpBasic(user,PASSWORD)).contentType("application/json").content("{}")).andExpect(status().isForbidden());
-            mvc.perform(get("/api/daily-shifts/2026-01-01").with(httpBasic(user,PASSWORD))).andExpect(status().isForbidden());
-            mvc.perform(post("/api/daily-shifts/open").with(httpBasic(user,PASSWORD)).contentType("application/json").content("{}")).andExpect(status().isForbidden());
-            mvc.perform(get("/api/members").with(httpBasic(user,PASSWORD))).andExpect(status().isForbidden());
-            mvc.perform(post("/api/route").with(httpBasic(user,PASSWORD)).contentType("application/json").content("{\"lat\":22.6,\"lng\":120.3}")).andExpect(status().isForbidden());
+            mvc.perform(get("/api/orders").with(login(user,PASSWORD))).andExpect(status().isForbidden());
+            mvc.perform(post("/api/orders").with(login(user,PASSWORD)).contentType("application/json").content("{}")).andExpect(status().isForbidden());
+            mvc.perform(get("/api/daily-shifts/2026-01-01").with(login(user,PASSWORD))).andExpect(status().isForbidden());
+            mvc.perform(post("/api/daily-shifts/open").with(login(user,PASSWORD)).contentType("application/json").content("{}")).andExpect(status().isForbidden());
+            mvc.perform(get("/api/members").with(login(user,PASSWORD))).andExpect(status().isForbidden());
+            mvc.perform(post("/api/route").with(login(user,PASSWORD)).contentType("application/json").content("{\"lat\":22.6,\"lng\":120.3}")).andExpect(status().isForbidden());
         }
-        mvc.perform(get("/api/orders").with(httpBasic("test_staff",PASSWORD))).andExpect(status().isOk());
+        mvc.perform(get("/api/orders").with(login("test_staff",PASSWORD))).andExpect(status().isOk());
         // 菜單、登入資訊不分級
-        mvc.perform(get("/api/menu").with(httpBasic("test_clerk",PASSWORD))).andExpect(status().isOk());
+        mvc.perform(get("/api/menu").with(login("test_clerk",PASSWORD))).andExpect(status().isOk());
     }
     @Test void requiresAuthenticationAndRejectsDisabledAccounts() throws Exception {
         mvc.perform(get("/api/menu")).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/menu").with(httpBasic("demo_staff","anything"))).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/auth/me").with(httpBasic("test_staff",PASSWORD))).andExpect(status().isOk()).andExpect(jsonPath("$.staffId").value(10));
+        mvc.perform(get("/api/menu").with(login("demo_staff","anything"))).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/auth/me").with(login("test_staff",PASSWORD))).andExpect(status().isOk()).andExpect(jsonPath("$.staffId").value(10));
         jdbc.update("UPDATE staff_account SET active=FALSE WHERE staff_id=10");
-        mvc.perform(get("/api/auth/me").with(httpBasic("test_staff",PASSWORD))).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/auth/me").with(login("test_staff",PASSWORD))).andExpect(status().isUnauthorized());
     }
     @Test void menuHidesRecipeAndPasswords() throws Exception {
-        String body=mvc.perform(get("/api/menu").with(httpBasic("test_staff",PASSWORD)))
+        String body=mvc.perform(get("/api/menu").with(login("test_staff",PASSWORD)))
             .andExpect(status().isOk()).andExpect(jsonPath("$.products.length()").value(5))
             .andReturn().getResponse().getContentAsString();
         assertFalse(body.contains("recipe")); assertFalse(body.contains("password"));
     }
     @Test void rulesReturnStructuredJson() throws Exception {
-        mvc.perform(get("/api/rules").with(httpBasic("test_staff",PASSWORD)))
+        mvc.perform(get("/api/rules").with(login("test_staff",PASSWORD)))
             .andExpect(status().isOk()).andExpect(jsonPath("$[0].condition_json.temperatureIn[0]").value("WARM"));
     }
     @Test void pricesIncludeToppingsAndMultiplyGroupedCups() throws Exception {
@@ -161,41 +161,41 @@ class PosIntegrationTest {
     @Test void changedPayloadCannotReuseRequestId() throws Exception {
         var first=request(item(1,1,List.of())); create(first);
         var changed=new Create(first.requestId(),first.source(),first.payment(),null,null,null,null,null,null,List.of(item(1,2,List.of())));
-        mvc.perform(post("/api/orders").with(httpBasic("test_staff",PASSWORD)).contentType("application/json")
+        mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
             .content(json.writeValueAsBytes(changed))).andExpect(status().isConflict());
         assertEquals(5,countOrders());
     }
     @Test void rejectsHotJellyAndInvalidSlushWithoutWriting() throws Exception {
         var hot=new Item(1L,Size.M,Temperature.HOT,Sugar.NORMAL,Ice.NONE,1,List.of(2L),null);
         for(var invalid:List.of(hot,item(5,1,List.of()))) {
-            mvc.perform(post("/api/orders").with(httpBasic("test_staff",PASSWORD)).contentType("application/json")
+            mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
                 .content(json.writeValueAsBytes(request(invalid)))).andExpect(status().isBadRequest());
         }
         assertEquals(4,countOrders());
     }
     @Test void rejectsDuplicateToppingsAndZeroQuantity() throws Exception {
         for(var invalid:List.of(item(1,1,List.of(1L,1L)),item(1,0,List.of())))
-            mvc.perform(post("/api/orders").with(httpBasic("test_staff",PASSWORD)).contentType("application/json")
+            mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
                 .content(json.writeValueAsBytes(request(invalid)))).andExpect(status().isBadRequest());
         assertEquals(4,countOrders());
     }
     @Test void missingOrClosedShiftBlocksCheckout() throws Exception {
         jdbc.update("UPDATE pos_order SET business_date='2026-10-28'");
         jdbc.update("UPDATE daily_shift SET status='CLOSED',closed_by=11,closed_at=CURRENT_TIMESTAMP,revenue_by_payment='{}',cups=0,expected_cash=2000,counted_cash=2000");
-        mvc.perform(post("/api/orders").with(httpBasic("test_staff",PASSWORD)).contentType("application/json")
+        mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
             .content(json.writeValueAsBytes(request(item(1,1,List.of()))))).andExpect(status().isConflict());
         assertEquals(4,countOrders());
     }
     @Test void stockShortageRollsBackWholeOrder() throws Exception {
         double before=stock(1); jdbc.update("UPDATE inventory SET book_qty=0 WHERE inventory_id=6");
-        mvc.perform(post("/api/orders").with(httpBasic("test_staff",PASSWORD)).contentType("application/json")
+        mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
             .content(json.writeValueAsBytes(request(item(1,1,List.of()),item(3,1,List.of(1L)))))).andExpect(status().isConflict());
         assertEquals(before,stock(1)); assertEquals(4,countOrders());
     }
     @Test void lateInsertFailureRollsBackMainAndEarlierDetail() throws Exception {
         double before=stock(1);
         jdbc.execute("ALTER TABLE order_item ADD CONSTRAINT test_second_item_failure CHECK (product_id<>2 OR status='CANCELLED')");
-        mvc.perform(post("/api/orders").with(httpBasic("test_staff",PASSWORD)).contentType("application/json")
+        mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
             .content(json.writeValueAsBytes(request(item(1,1,List.of()),item(2,1,List.of()))))).andExpect(status().isConflict());
         assertEquals(4,countOrders()); assertEquals(5,jdbc.queryForObject("SELECT COUNT(*) FROM order_item",Integer.class));
         assertEquals(before,stock(1));
@@ -235,7 +235,7 @@ class PosIntegrationTest {
         long id=result.get("order_id").asLong(),line=result.get("items").get(1).get("item_id").asLong();
         state(id,line,ItemStatus.MAKING);
         double remaining=stock(1);
-        mvc.perform(post("/api/orders/"+id+"/cancel").with(httpBasic("test_staff",PASSWORD)).contentType("application/json")
+        mvc.perform(post("/api/orders/"+id+"/cancel").with(login("test_staff",PASSWORD)).contentType("application/json")
             .content("{\"reason\":\"取消\",\"refundAmount\":0}")).andExpect(status().isOk())
             .andExpect(jsonPath("$.items[1].status").value("WASTED")).andExpect(jsonPath("$.items[1].approved_by").value(10));
         assertEquals(remaining+1,stock(1));
@@ -260,10 +260,10 @@ class PosIntegrationTest {
     @Test void insufficientCashAndClientPriceAreRejected() throws Exception {
         var base=request(item(1,1,List.of()));
         var cash=new Create(base.requestId(),base.source(),Payment.CASH,null,new BigDecimal("1"),null,null,null,null,base.items());
-        mvc.perform(post("/api/orders").with(httpBasic("test_staff",PASSWORD)).contentType("application/json")
+        mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
             .content(json.writeValueAsBytes(cash))).andExpect(status().isBadRequest());
         var tree=json.valueToTree(base); ((com.fasterxml.jackson.databind.node.ObjectNode)tree).put("total",1);
-        mvc.perform(post("/api/orders").with(httpBasic("test_staff",PASSWORD)).contentType("application/json")
+        mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
             .content(json.writeValueAsBytes(tree))).andExpect(status().isBadRequest());
     }
     @Test void concurrentCheckoutCannotOversell() throws Exception {
@@ -293,14 +293,14 @@ class PosIntegrationTest {
         var bytes=new ByteArrayOutputStream();ImageIO.write(new BufferedImage(2,2,BufferedImage.TYPE_INT_RGB),"png",bytes);
         var image=new MockMultipartFile("file","../../unsafe.png","image/png",bytes.toByteArray());
         String url="/api/orders/"+id+"/items/"+line+"/photo";
-        mvc.perform(multipart(url).file(image).with(httpBasic("test_staff",PASSWORD))).andExpect(status().isConflict());
+        mvc.perform(multipart(url).file(image).with(login("test_staff",PASSWORD))).andExpect(status().isConflict());
         state(id,line,ItemStatus.MAKING);cancel(id,line,"test_manager","654321");
         mvc.perform(multipart(url).file(new MockMultipartFile("file","fake.png","image/png","not an image".getBytes()))
-            .with(httpBasic("test_staff",PASSWORD))).andExpect(status().isBadRequest());
-        mvc.perform(multipart(url).file(image).with(httpBasic("test_staff",PASSWORD))).andExpect(status().isOk());
-        mvc.perform(multipart(url).file(image).with(httpBasic("test_staff",PASSWORD))).andExpect(status().isConflict());
+            .with(login("test_staff",PASSWORD))).andExpect(status().isBadRequest());
+        mvc.perform(multipart(url).file(image).with(login("test_staff",PASSWORD))).andExpect(status().isOk());
+        mvc.perform(multipart(url).file(image).with(login("test_staff",PASSWORD))).andExpect(status().isConflict());
         mvc.perform(get(url)).andExpect(status().isUnauthorized());
-        mvc.perform(get(url).with(httpBasic("test_staff",PASSWORD))).andExpect(status().isOk()).andExpect(content().contentType("image/png"));
+        mvc.perform(get(url).with(login("test_staff",PASSWORD))).andExpect(status().isOk()).andExpect(content().contentType("image/png"));
         try(var files=Files.list(Path.of("build/test-photos"))) { assertEquals(1,files.count()); }
     }
 
@@ -326,7 +326,7 @@ class PosIntegrationTest {
         for(String amount:List.of("100.001","100000000.00","-1")) {
             var request=new Create(UUID.randomUUID(),Source.TAKE_OUT,Payment.CASH,null,
                 new BigDecimal(amount),null,null,null,null,List.of(item(1,1,List.of())));
-            mvc.perform(post("/api/orders").with(httpBasic("test_staff",PASSWORD)).contentType("application/json")
+            mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
                 .content(json.writeValueAsBytes(request))).andExpect(status().isBadRequest());
         }
         assertEquals(4,countOrders());
@@ -334,7 +334,7 @@ class PosIntegrationTest {
 
     @Test void totalCannotOverflowDatabaseDecimalRange() throws Exception {
         jdbc.update("UPDATE product SET base_price=99999999.99 WHERE product_id=1");
-        mvc.perform(post("/api/orders").with(httpBasic("test_staff",PASSWORD)).contentType("application/json")
+        mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
             .content(json.writeValueAsBytes(request(item(1,2,List.of()))))).andExpect(status().isBadRequest());
         assertEquals(4,countOrders());assertEquals(98,stock(1));
     }
@@ -346,7 +346,7 @@ class PosIntegrationTest {
              "distanceM":1200,"durationSeconds":60,
              "items":[{"productId":1,"size":"M","temperature":"COLD","sugar":"HALF","ice":"LESS","qty":1,"toppingIds":[]}]}
             """.formatted(requestId);
-        JsonNode first=json.readTree(mvc.perform(post("/api/orders").with(httpBasic("test_staff",PASSWORD))
+        JsonNode first=json.readTree(mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD))
             .contentType("application/json").content(oldBody)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         var normalized=new Create(requestId,Source.TAKE_OUT,Payment.CASH,null,new BigDecimal("100.00"),
             new BigDecimal("1200.00"),60,null,null,List.of(item(1,1,List.of())));
@@ -375,7 +375,7 @@ class PosIntegrationTest {
     }
     private JsonNode explicitCancel(JsonNode order,BigDecimal refund,String manager,String pin,int expected) throws Exception {
         String body=mvc.perform(post("/api/orders/"+order.get("order_id").asLong()+"/cancel")
-            .with(httpBasic("test_staff",PASSWORD)).contentType("application/json")
+            .with(login("test_staff",PASSWORD)).contentType("application/json")
             .content(json.writeValueAsBytes(new Cancel("顧客未取餐",manager,pin,refund))))
             .andExpect(status().is(expected)).andReturn().getResponse().getContentAsString();
         return json.readTree(body);
@@ -392,7 +392,7 @@ class PosIntegrationTest {
         assertEquals(0,cancelled.get("refunded_amount").asInt()); assertEquals(98,stock(1));
         explicitCancel(order,BigDecimal.ZERO,null,null,200); assertEquals(98,stock(1));
         assertEquals(id,create(request).get("order_id").asLong());
-        mvc.perform(post("/api/orders/"+id+"/collect").with(httpBasic("test_staff",PASSWORD))
+        mvc.perform(post("/api/orders/"+id+"/collect").with(login("test_staff",PASSWORD))
             .contentType("application/json").content("{\"payment\":\"LINE_PAY\"}" )).andExpect(status().isConflict());
     }
     @Test void unpaidMadeWastageKeepsCostSnapshotWithoutRefundOrStockRestore() throws Exception {
@@ -428,12 +428,12 @@ class PosIntegrationTest {
         state(id,line,ItemStatus.PICKED_UP).andExpect(status().isConflict());
         String path="/api/orders/"+id+"/collect";
         for(String body:List.of("{\"payment\":\"CASH\",\"receivedCash\":20}","{\"payment\":\"LINE_PAY\",\"receivedCash\":100}","{\"payment\":\"UBER_EATS\"}"))
-            mvc.perform(post(path).with(httpBasic("test_staff",PASSWORD)).contentType("application/json").content(body)).andExpect(status().isBadRequest());
+            mvc.perform(post(path).with(login("test_staff",PASSWORD)).contentType("application/json").content(body)).andExpect(status().isBadRequest());
         String body="{\"payment\":\"CASH\",\"receivedCash\":100}";
-        for(int retry=0;retry<2;retry++) mvc.perform(post(path).with(httpBasic("test_staff",PASSWORD)).contentType("application/json").content(body))
+        for(int retry=0;retry<2;retry++) mvc.perform(post(path).with(login("test_staff",PASSWORD)).contentType("application/json").content(body))
             .andExpect(status().isOk()).andExpect(jsonPath("$.payment_status").value("PAID"))
             .andExpect(jsonPath("$.paid_amount").value(25)).andExpect(jsonPath("$.change_cash").value(75));
-        mvc.perform(post(path).with(httpBasic("test_staff",PASSWORD)).contentType("application/json").content("{\"payment\":\"LINE_PAY\"}")).andExpect(status().isConflict());
+        mvc.perform(post(path).with(login("test_staff",PASSWORD)).contentType("application/json").content("{\"payment\":\"LINE_PAY\"}")).andExpect(status().isConflict());
         state(id,line,ItemStatus.PICKED_UP).andExpect(status().isOk()); assertEquals(97,stock(1));
     }
     @Test void unknownIngredientCostIsNeverReportedAsZero() throws Exception {
@@ -444,11 +444,11 @@ class PosIntegrationTest {
     @Test void unpaidCannotClaimPaymentAndPaidOrdersRequireMethod() throws Exception {
         for(var bad:List.of(new Create(UUID.randomUUID(),Source.TAKE_OUT,Payment.LINE_PAY,null,null,null,null,null,null,List.of(item(1,1,List.of())),true),
             new Create(UUID.randomUUID(),Source.TAKE_OUT,null,null,null,null,null,null,null,List.of(item(1,1,List.of())),false)))
-            mvc.perform(post("/api/orders").with(httpBasic("test_staff",PASSWORD)).contentType("application/json").content(json.writeValueAsBytes(bad))).andExpect(status().isBadRequest());
+            mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json").content(json.writeValueAsBytes(bad))).andExpect(status().isBadRequest());
         assertEquals(4,countOrders());
     }
     private org.springframework.test.web.servlet.ResultActions bulk(long id,ItemStatus next) throws Exception {
-        return mvc.perform(post("/api/orders/"+id+"/status").with(httpBasic("test_staff",PASSWORD))
+        return mvc.perform(post("/api/orders/"+id+"/status").with(login("test_staff",PASSWORD))
             .contentType("application/json").content(json.writeValueAsBytes(new ChangeStatus(next))));
     }
     @Test void bulkProductionAdvancesOnlyEligibleLinesAndIsRetrySafe() throws Exception {
@@ -476,7 +476,7 @@ class PosIntegrationTest {
         bulk(id,ItemStatus.PICKED_UP).andExpect(status().isConflict());
         bulk(id,ItemStatus.MAKING).andExpect(status().isOk());bulk(id,ItemStatus.DONE).andExpect(status().isOk());
         bulk(id,ItemStatus.PICKED_UP).andExpect(status().isConflict());
-        mvc.perform(post("/api/orders/"+id+"/collect").with(httpBasic("test_staff",PASSWORD))
+        mvc.perform(post("/api/orders/"+id+"/collect").with(login("test_staff",PASSWORD))
             .contentType("application/json").content("{\"payment\":\"LINE_PAY\"}")).andExpect(status().isOk());
         state(id,order.get("items").get(0).get("item_id").asLong(),ItemStatus.PICKED_UP).andExpect(status().isOk());
         bulk(id,ItemStatus.PICKED_UP).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PICKED_UP"));
@@ -491,7 +491,7 @@ class PosIntegrationTest {
     @Test void uberEatsIsAnOrderSourceNotANewPaymentMethod() throws Exception {
         var base=request(item(1,1,List.of()));
         var invalid=new Create(base.requestId(),base.source(),Payment.UBER_EATS,null,null,null,null,null,null,base.items());
-        mvc.perform(post("/api/orders").with(httpBasic("test_staff",PASSWORD)).contentType("application/json")
+        mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
             .content(json.writeValueAsBytes(invalid))).andExpect(status().isBadRequest());
         assertEquals(4,countOrders());
         var valid=new Create(UUID.randomUUID(),Source.UBER_EATS,Payment.LINE_PAY,null,null,null,null,null,null,base.items());

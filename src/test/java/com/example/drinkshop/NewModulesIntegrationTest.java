@@ -21,7 +21,7 @@ import javax.sql.DataSource;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static com.example.drinkshop.TestLogin.login;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -82,20 +82,20 @@ public class NewModulesIntegrationTest {
     void testInventoryFlow() throws Exception {
         // 1. 查詢所有原料
         mockMvc.perform(get("/api/inventories")
-                        .with(httpBasic(TEST_USER, TEST_PASS)))
+                        .with(login(TEST_USER, TEST_PASS)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray());
 
         // 2. 依 ID 查特定原料 (ID: 1)
         mockMvc.perform(get("/api/inventories/1")
-                        .with(httpBasic(TEST_USER, TEST_PASS)))
+                        .with(login(TEST_USER, TEST_PASS)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").exists());
 
         // 3. 校正庫存數量 (ID: 1, 數量: 500.00)
         StockQuantityRequest updateReq = new StockQuantityRequest(new BigDecimal("500.00"));
         mockMvc.perform(put("/api/inventories/1/stock")
-                        .with(httpBasic(TEST_USER, TEST_PASS))
+                        .with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(updateReq)))
                 .andExpect(status().isOk())
@@ -104,7 +104,7 @@ public class NewModulesIntegrationTest {
         // 4. 手動扣除庫存 (ID: 1, 扣除: 50.00)
         StockQuantityRequest deductReq = new StockQuantityRequest(new BigDecimal("50.00"));
         mockMvc.perform(post("/api/inventories/1/deduct")
-                        .with(httpBasic(TEST_USER, TEST_PASS))
+                        .with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(deductReq)))
                 .andExpect(status().isOk())
@@ -112,14 +112,14 @@ public class NewModulesIntegrationTest {
 
         // 5. 查詢在售加料清單
         mockMvc.perform(get("/api/inventories/toppings")
-                        .with(httpBasic(TEST_USER, TEST_PASS)))
+                        .with(login(TEST_USER, TEST_PASS)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray());
 
         // 6. 更新加料狀態為停售
         mockMvc.perform(put("/api/inventories/toppings/1/status")
                         .param("onSale", "false")
-                        .with(httpBasic(TEST_USER, TEST_PASS)))
+                        .with(login(TEST_USER, TEST_PASS)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.onSale").value(false));
     }
@@ -131,7 +131,7 @@ public class NewModulesIntegrationTest {
         // 1. 開班
         OpenShiftRequest openReq = new OpenShiftRequest(testDate, new BigDecimal("2000.00"), "[]", 11L);
         mockMvc.perform(post("/api/daily-shifts/open")
-                        .with(httpBasic(TEST_USER, TEST_PASS))
+                        .with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(openReq)))
                 .andExpect(status().isCreated())
@@ -141,7 +141,7 @@ public class NewModulesIntegrationTest {
 
         // 重複開班：409 並給看得懂的訊息
         mockMvc.perform(post("/api/daily-shifts/open")
-                        .with(httpBasic(TEST_USER, TEST_PASS))
+                        .with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(openReq)))
                 .andExpect(status().isConflict())
@@ -149,20 +149,20 @@ public class NewModulesIntegrationTest {
 
         // 2. 查詢班次
         mockMvc.perform(get("/api/daily-shifts/" + testDate)
-                        .with(httpBasic(TEST_USER, TEST_PASS)))
+                        .with(login(TEST_USER, TEST_PASS)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("OPEN"));
 
         // 3. 關班結算
         // 關班人員不能是 POS 帳號自己
         mockMvc.perform(post("/api/daily-shifts/close")
-                        .with(httpBasic(TEST_USER, TEST_PASS))
+                        .with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new CloseShiftRequest(testDate, new BigDecimal("2000.00"), "無短溢", 10L))))
                 .andExpect(status().isBadRequest());
         CloseShiftRequest closeReq = new CloseShiftRequest(testDate, new BigDecimal("2000.00"), "無短溢", 11L);
         mockMvc.perform(post("/api/daily-shifts/close")
-                        .with(httpBasic(TEST_USER, TEST_PASS))
+                        .with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(closeReq)))
                 .andExpect(status().isOk())
@@ -171,13 +171,13 @@ public class NewModulesIntegrationTest {
 
         // 重複關班、還沒開班就關班：409 並給看得懂的訊息
         mockMvc.perform(post("/api/daily-shifts/close")
-                        .with(httpBasic(TEST_USER, TEST_PASS))
+                        .with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(closeReq)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("今天已經關班，不可重複關班"));
         mockMvc.perform(post("/api/daily-shifts/close")
-                        .with(httpBasic(TEST_USER, TEST_PASS))
+                        .with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new CloseShiftRequest(testDate.plusDays(9), new BigDecimal("0"), null, 11L))))
                 .andExpect(status().isConflict())
@@ -189,25 +189,25 @@ public class NewModulesIntegrationTest {
         LocalDate testDate = LocalDate.of(2027, 5, 23);
         String reopen = "{\"businessDate\":\"" + testDate + "\"}";
         // 還沒開班：不能重新開班
-        mockMvc.perform(post("/api/daily-shifts/reopen").with(httpBasic(TEST_USER, TEST_PASS))
+        mockMvc.perform(post("/api/daily-shifts/reopen").with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON).content(reopen))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("今天還沒開班，請直接開班"));
-        mockMvc.perform(post("/api/daily-shifts/open").with(httpBasic(TEST_USER, TEST_PASS))
+        mockMvc.perform(post("/api/daily-shifts/open").with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new OpenShiftRequest(testDate, new BigDecimal("1500"), "[]", 11L))))
                 .andExpect(status().isCreated());
         // 營業中：不用重新開班
-        mockMvc.perform(post("/api/daily-shifts/reopen").with(httpBasic(TEST_USER, TEST_PASS))
+        mockMvc.perform(post("/api/daily-shifts/reopen").with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON).content(reopen))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("今天還在營業中，不用重新開班"));
-        mockMvc.perform(post("/api/daily-shifts/close").with(httpBasic(TEST_USER, TEST_PASS))
+        mockMvc.perform(post("/api/daily-shifts/close").with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new CloseShiftRequest(testDate, new BigDecimal("1500"), null, 11L))))
                 .andExpect(status().isOk());
         // 關班後重新開班：回到 OPEN，關班結果清掉，開班人員與零用金不變
-        mockMvc.perform(post("/api/daily-shifts/reopen").with(httpBasic(TEST_USER, TEST_PASS))
+        mockMvc.perform(post("/api/daily-shifts/reopen").with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON).content(reopen))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("OPEN"))
@@ -215,7 +215,7 @@ public class NewModulesIntegrationTest {
                 .andExpect(jsonPath("$.openedBy").value(11))
                 .andExpect(jsonPath("$.pettyCash").value(1500.0));
         // 可以再關一次
-        mockMvc.perform(post("/api/daily-shifts/close").with(httpBasic(TEST_USER, TEST_PASS))
+        mockMvc.perform(post("/api/daily-shifts/close").with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new CloseShiftRequest(testDate, new BigDecimal("1500"), null, 11L))))
                 .andExpect(status().isOk())
@@ -226,13 +226,13 @@ public class NewModulesIntegrationTest {
     void cashShortageRequiresReason() throws Exception {
         LocalDate testDate = LocalDate.of(2027, 5, 22);
         mockMvc.perform(post("/api/daily-shifts/open")
-                        .with(httpBasic(TEST_USER, TEST_PASS))
+                        .with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new OpenShiftRequest(testDate, new BigDecimal("2000"), "[]", 11L))))
                 .andExpect(status().isCreated());
         // 短少 10 元沒寫原因：400，班次維持 OPEN
         mockMvc.perform(post("/api/daily-shifts/close")
-                        .with(httpBasic(TEST_USER, TEST_PASS))
+                        .with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new CloseShiftRequest(testDate, new BigDecimal("1990"), "  ", 11L))))
                 .andExpect(status().isBadRequest())
@@ -241,7 +241,7 @@ public class NewModulesIntegrationTest {
                 jdbc.queryForObject("SELECT status FROM daily_shift WHERE business_date=?", String.class, testDate));
         // 寫了原因就可以關班
         mockMvc.perform(post("/api/daily-shifts/close")
-                        .with(httpBasic(TEST_USER, TEST_PASS))
+                        .with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new CloseShiftRequest(testDate, new BigDecimal("1990"), "找錯零錢", 11L))))
                 .andExpect(status().isOk())
@@ -254,7 +254,7 @@ public class NewModulesIntegrationTest {
         // 沒選開班人員、選 POS 帳號自己、選離職員工、選不存在的人：都是 400，而且不會開班
         for (Long opener : new Long[]{null, 10L, 12L, 999L}) {
             mockMvc.perform(post("/api/daily-shifts/open")
-                            .with(httpBasic(TEST_USER, TEST_PASS))
+                            .with(login(TEST_USER, TEST_PASS))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(mapper.writeValueAsString(new OpenShiftRequest(testDate, new BigDecimal("2000"), "[]", opener))))
                     .andExpect(status().isBadRequest());
@@ -266,16 +266,25 @@ public class NewModulesIntegrationTest {
     @Test
     void testWastageFlow() throws Exception {
         // 1. 原料報廢 (原料 1 號，報廢 10.00)
-        RawMaterialWastageRequest wasteReq = new RawMaterialWastageRequest(1L, new BigDecimal("10.00"), "過期變質", 10L);
+        RawMaterialWastageRequest wasteReq = new RawMaterialWastageRequest(1L, new BigDecimal("10.00"), "過期變質");
         mockMvc.perform(post("/api/wastages/raw-material")
-                        .with(httpBasic(TEST_USER, TEST_PASS))
+                        .with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(wasteReq)))
                 .andExpect(status().isOk());
+        // 通報人是目前登入的帳號（staff_id 10），不是前端指定的人
+        org.junit.jupiter.api.Assertions.assertEquals(10L,
+                jdbc.queryForObject("SELECT reported_by FROM inventory WHERE inventory_id=1", Long.class));
+        // 前端多帶 staffId 想冒用別人：直接拒絕
+        mockMvc.perform(post("/api/wastages/raw-material")
+                        .with(login(TEST_USER, TEST_PASS))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"inventoryId\":1,\"wastageQty\":1,\"reason\":\"打翻\",\"staffId\":11}"))
+                .andExpect(status().isBadRequest());
 
         // 2. 當日報廢統計
         mockMvc.perform(get("/api/wastages/daily-summary")
-                        .with(httpBasic(TEST_USER, TEST_PASS)))
+                        .with(login(TEST_USER, TEST_PASS)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalWastedCount").exists())
                 .andExpect(jsonPath("$.totalWastageCost").exists());

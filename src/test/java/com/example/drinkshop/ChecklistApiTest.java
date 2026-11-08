@@ -22,7 +22,7 @@ import java.time.ZoneId;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static com.example.drinkshop.TestLogin.login;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -63,7 +63,7 @@ class ChecklistApiTest {
     }
 
     private long createItem(String json) throws Exception {
-        var body = mvc.perform(post("/api/checklist/items").with(httpBasic("c_manager", PASSWORD))
+        var body = mvc.perform(post("/api/checklist/items").with(login("c_manager", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content(json))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
@@ -72,25 +72,25 @@ class ChecklistApiTest {
 
     @Test
     void onlyManagerCanManageItems() throws Exception {
-        mvc.perform(post("/api/checklist/items").with(httpBasic("c_staff", PASSWORD))
+        mvc.perform(post("/api/checklist/items").with(login("c_staff", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"刷吧檯\",\"frequency\":\"DAILY\"}"))
                 .andExpect(status().isForbidden());
 
         long id = createItem("{\"name\":\"刷吧檯\",\"frequency\":\"DAILY\"}");
-        mvc.perform(get("/api/checklist/items").with(httpBasic("c_staff", PASSWORD)))
+        mvc.perform(get("/api/checklist/items").with(login("c_staff", PASSWORD)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(1)))
                 .andExpect(jsonPath("$[0].targetCount").value(1));
 
         // 停用後預設清單看不到，includeInactive 才看得到
-        mvc.perform(put("/api/checklist/items/" + id).with(httpBasic("c_manager", PASSWORD))
+        mvc.perform(put("/api/checklist/items/" + id).with(login("c_manager", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"刷吧檯\",\"frequency\":\"DAILY\",\"targetCount\":3,\"active\":false}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.active").value(false));
-        mvc.perform(get("/api/checklist/items").with(httpBasic("c_staff", PASSWORD)))
+        mvc.perform(get("/api/checklist/items").with(login("c_staff", PASSWORD)))
                 .andExpect(jsonPath("$", hasSize(0)));
-        mvc.perform(get("/api/checklist/items?includeInactive=true").with(httpBasic("c_staff", PASSWORD)))
+        mvc.perform(get("/api/checklist/items?includeInactive=true").with(login("c_staff", PASSWORD)))
                 .andExpect(jsonPath("$", hasSize(1)));
     }
 
@@ -99,17 +99,17 @@ class ChecklistApiTest {
         long bar = createItem("{\"name\":\"刷吧檯\",\"frequency\":\"DAILY\",\"targetCount\":2}");
         createItem("{\"name\":\"清冰箱\",\"frequency\":\"WEEKLY\"}");
 
-        var first = mvc.perform(post("/api/checklist/records").with(httpBasic("c_staff", PASSWORD))
+        var first = mvc.perform(post("/api/checklist/records").with(login("c_staff", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"itemId\":" + bar + ",\"staffId\":10}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.staffName").value("測試員工"))
                 .andReturn().getResponse().getContentAsString();
-        mvc.perform(post("/api/checklist/records").with(httpBasic("c_pos", PASSWORD))
+        mvc.perform(post("/api/checklist/records").with(login("c_pos", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"itemId\":" + bar + ",\"staffId\":11}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.staffName").value("測試店長"));
 
-        mvc.perform(get("/api/checklist").with(httpBasic("c_staff", PASSWORD)))
+        mvc.perform(get("/api/checklist").with(login("c_staff", PASSWORD)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(2)))
                 .andExpect(jsonPath("$[0].doneCount").value(2))
@@ -118,9 +118,9 @@ class ChecklistApiTest {
                 .andExpect(jsonPath("$[1].completed").value(false));
 
         long recordId = mapper.readTree(first).get("recordId").asLong();
-        mvc.perform(delete("/api/checklist/records/" + recordId).with(httpBasic("c_staff", PASSWORD)))
+        mvc.perform(delete("/api/checklist/records/" + recordId).with(login("c_staff", PASSWORD)))
                 .andExpect(status().isOk());
-        mvc.perform(get("/api/checklist").with(httpBasic("c_staff", PASSWORD)))
+        mvc.perform(get("/api/checklist").with(login("c_staff", PASSWORD)))
                 .andExpect(jsonPath("$[0].doneCount").value(1))
                 .andExpect(jsonPath("$[0].completed").value(false));
     }
@@ -128,10 +128,10 @@ class ChecklistApiTest {
     @Test
     void rejectsUnknownOrInactiveStaff() throws Exception {
         long bar = createItem("{\"name\":\"刷吧檯\",\"frequency\":\"DAILY\"}");
-        mvc.perform(post("/api/checklist/records").with(httpBasic("c_pos", PASSWORD))
+        mvc.perform(post("/api/checklist/records").with(login("c_pos", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"itemId\":" + bar + ",\"staffId\":999}"))
                 .andExpect(status().isBadRequest());
-        mvc.perform(post("/api/checklist/records").with(httpBasic("c_pos", PASSWORD))
+        mvc.perform(post("/api/checklist/records").with(login("c_pos", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"itemId\":" + bar + ",\"staffId\":12}"))
                 .andExpect(status().isBadRequest());
     }
@@ -140,7 +140,7 @@ class ChecklistApiTest {
     void rejectsStaffNotOnDuty() throws Exception {
         long bar = createItem("{\"name\":\"刷吧檯\",\"frequency\":\"DAILY\"}");
         jdbc.update("UPDATE shift_staff SET clock_out_at=clock_in_at WHERE staff_id=10");
-        mvc.perform(post("/api/checklist/records").with(httpBasic("c_staff", PASSWORD))
+        mvc.perform(post("/api/checklist/records").with(login("c_staff", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"itemId\":" + bar + ",\"staffId\":10}"))
                 .andExpect(status().isConflict());
     }
@@ -149,33 +149,33 @@ class ChecklistApiTest {
     void personalAccountOnlyRecordsAndUndoesOwn() throws Exception {
         long bar = createItem("{\"name\":\"刷吧檯\",\"frequency\":\"DAILY\",\"targetCount\":3}");
         // 不帶 staffId：記成自己
-        mvc.perform(post("/api/checklist/records").with(httpBasic("c_staff", PASSWORD))
+        mvc.perform(post("/api/checklist/records").with(login("c_staff", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"itemId\":" + bar + "}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.staffId").value(10));
         // 替別人記：拒絕
-        mvc.perform(post("/api/checklist/records").with(httpBasic("c_staff", PASSWORD))
+        mvc.perform(post("/api/checklist/records").with(login("c_staff", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"itemId\":" + bar + ",\"staffId\":11}"))
                 .andExpect(status().isForbidden());
         // POS 不選人：拒絕
-        mvc.perform(post("/api/checklist/records").with(httpBasic("c_pos", PASSWORD))
+        mvc.perform(post("/api/checklist/records").with(login("c_pos", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"itemId\":" + bar + "}"))
                 .andExpect(status().isBadRequest());
 
-        var managerRecord = mvc.perform(post("/api/checklist/records").with(httpBasic("c_manager", PASSWORD))
+        var managerRecord = mvc.perform(post("/api/checklist/records").with(login("c_manager", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"itemId\":" + bar + "}"))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         long managerRecordId = mapper.readTree(managerRecord).get("recordId").asLong();
         // 員工不能取消店長的紀錄；POS 可以
-        mvc.perform(delete("/api/checklist/records/" + managerRecordId).with(httpBasic("c_staff", PASSWORD)))
+        mvc.perform(delete("/api/checklist/records/" + managerRecordId).with(login("c_staff", PASSWORD)))
                 .andExpect(status().isForbidden());
-        mvc.perform(delete("/api/checklist/records/" + managerRecordId).with(httpBasic("c_pos", PASSWORD)))
+        mvc.perform(delete("/api/checklist/records/" + managerRecordId).with(login("c_pos", PASSWORD)))
                 .andExpect(status().isOk());
     }
 
     @Test
     void staffListExcludesPosAccount() throws Exception {
-        mvc.perform(get("/api/staff").with(httpBasic("c_staff", PASSWORD)))
+        mvc.perform(get("/api/staff").with(login("c_staff", PASSWORD)))
                 .andExpect(jsonPath("$[?(@.staffId == 20)]").isEmpty())
                 .andExpect(jsonPath("$[?(@.staffId == 10)]").isNotEmpty());
     }

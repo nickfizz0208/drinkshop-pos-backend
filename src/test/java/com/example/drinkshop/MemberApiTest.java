@@ -27,7 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.*;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static com.example.drinkshop.TestLogin.login;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -68,7 +68,7 @@ class MemberApiTest {
     }
 
     private ResultActions as(String user,MockHttpServletRequestBuilder request) throws Exception {
-        return mvc.perform(request.with(httpBasic(user,PASSWORD)));
+        return mvc.perform(request.with(login(user,PASSWORD)));
     }
     private MockHttpServletRequestBuilder withJson(MockHttpServletRequestBuilder request,String body) {
         return request.contentType("application/json").content(body.getBytes(StandardCharsets.UTF_8));

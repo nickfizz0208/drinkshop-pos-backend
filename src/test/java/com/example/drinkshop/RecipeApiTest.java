@@ -13,7 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import javax.sql.DataSource;
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static com.example.drinkshop.TestLogin.login;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -57,11 +57,11 @@ class RecipeApiTest {
 
     @Test
     void everyLevelSeesAllRecipes() throws Exception {
-        mvc.perform(get("/api/recipes").with(httpBasic("r_trainee",PASSWORD)))
+        mvc.perform(get("/api/recipes").with(login("r_trainee",PASSWORD)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.length()").value(5))
             .andExpect(jsonPath("$[*].name",hasItem("珍珠奶茶")));
-        mvc.perform(get("/api/recipes").with(httpBasic("r_staff",PASSWORD)))
+        mvc.perform(get("/api/recipes").with(login("r_staff",PASSWORD)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.length()").value(5))
             .andExpect(header().string("Cache-Control","no-store"));
@@ -69,27 +69,27 @@ class RecipeApiTest {
 
     @Test
     void searchFindsByName() throws Exception {
-        mvc.perform(get("/api/recipes").param("q","珍珠").with(httpBasic("r_trainee",PASSWORD)))
+        mvc.perform(get("/api/recipes").param("q","珍珠").with(login("r_trainee",PASSWORD)))
             .andExpect(jsonPath("$[*].name",contains("珍珠奶茶")));
     }
 
     @Test
     void traineeCanOpenAnyRecipe() throws Exception {
-        mvc.perform(get("/api/recipes/4").with(httpBasic("r_trainee",PASSWORD)))
+        mvc.perform(get("/api/recipes/4").with(login("r_trainee",PASSWORD)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.recipeStatus").value("OK"));
     }
 
     @Test
     void posAccountCannotSeeRecipes() throws Exception {
-        mvc.perform(get("/api/recipes").with(httpBasic("r_pos",PASSWORD))).andExpect(status().isForbidden());
-        mvc.perform(get("/api/recipes/categories").with(httpBasic("r_pos",PASSWORD))).andExpect(status().isForbidden());
-        mvc.perform(get("/api/recipes/4").with(httpBasic("r_pos",PASSWORD))).andExpect(status().isForbidden());
+        mvc.perform(get("/api/recipes").with(login("r_pos",PASSWORD))).andExpect(status().isForbidden());
+        mvc.perform(get("/api/recipes/categories").with(login("r_pos",PASSWORD))).andExpect(status().isForbidden());
+        mvc.perform(get("/api/recipes/4").with(login("r_pos",PASSWORD))).andExpect(status().isForbidden());
     }
 
     @Test
     void detailShowsUnitsAndWatermark() throws Exception {
-        mvc.perform(get("/api/recipes/4").with(httpBasic("r_staff",PASSWORD)))
+        mvc.perform(get("/api/recipes/4").with(login("r_staff",PASSWORD)))
             .andExpect(status().isOk())
             .andExpect(header().string("Cache-Control","no-store"))
             .andExpect(jsonPath("$.recipeStatus").value("OK"))
@@ -106,23 +106,23 @@ class RecipeApiTest {
         jdbc.update("UPDATE product SET recipe_json=? WHERE product_id=1",
             "{\"M\":[{\"inventoryId\":1,\"qty\":1}]}");
         assertTrue(jdbc.queryForObject("SELECT recipe_json FROM product WHERE product_id=1",String.class).startsWith("\""));
-        mvc.perform(get("/api/recipes/1").with(httpBasic("r_staff",PASSWORD)))
+        mvc.perform(get("/api/recipes/1").with(login("r_staff",PASSWORD)))
             .andExpect(jsonPath("$.recipeStatus").value("OK"))
             .andExpect(jsonPath("$.sizes[0].lines[0].item").value("中杯紙杯"));
     }
 
     @Test
     void leftStaffIsLockedOut() throws Exception {
-        mvc.perform(get("/api/recipes").with(httpBasic("r_left",PASSWORD))).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/recipes").with(login("r_left",PASSWORD))).andExpect(status().isUnauthorized());
     }
 
     @Test
     void unknownProductIs404() throws Exception {
-        mvc.perform(get("/api/recipes/999").with(httpBasic("r_staff",PASSWORD))).andExpect(status().isNotFound());
+        mvc.perform(get("/api/recipes/999").with(login("r_staff",PASSWORD))).andExpect(status().isNotFound());
     }
 
     @Test
     void existingPosApiStillWorks() throws Exception {
-        mvc.perform(get("/api/menu").with(httpBasic("r_staff",PASSWORD))).andExpect(status().isOk());
+        mvc.perform(get("/api/menu").with(login("r_staff",PASSWORD))).andExpect(status().isOk());
     }
 }

@@ -14,13 +14,8 @@ public record StockQuantityRequest(
         @NotNull(message = "數量不能為空")
         @DecimalMin(value = "0", message = "數量不能小於 0")
         @Digits(integer = 10, fraction = 2, message = "數量格式不正確")
-        BigDecimal quantity,
-
-        // 經手員工編號（選填，盤點回報時可指定，若未填則自動以當前登入店員為準）
-        Long staffId
+        // 經手人一律由後端以目前登入帳號記錄，前端不能指定
+        BigDecimal quantity
 ) {
-    public StockQuantityRequest(BigDecimal quantity) {
-        this(quantity, null);
-    }
 }
 

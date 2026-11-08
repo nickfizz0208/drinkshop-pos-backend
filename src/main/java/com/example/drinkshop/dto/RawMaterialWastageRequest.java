@@ -24,13 +24,11 @@ public record RawMaterialWastageRequest(
         // 報廢損耗原因說明（例如 過期、變質、打翻、煮壞）
         @NotBlank(message = "報廢原因不能為空")
         @Size(max = 255, message = "報廢原因不能超過 255 字元")
-        String reason,
-
-        // 通報員工編號（選填，若未填則後端自動以當前登入店員為準）
-        Long staffId
+        // 通報人一律由後端以目前登入帳號記錄，前端不能指定
+        String reason
 ) {
     public RawMaterialWastageRequest(BigDecimal wastageQty, String reason) {
-        this(null, wastageQty, reason, null);
+        this(null, wastageQty, reason);
     }
 }
 

@@ -117,19 +117,5 @@ public class DailyShiftController {
         return Boolean.TRUE.equals(value) || (value instanceof Number n && n.intValue() == 1);
     }
 
-    /**
-     * 輔助方法：優先採用請求中的 staffId，若無則自目前登入的 Principal 解析員工編號，預設為 1L
-     */
-    private Long resolveStaffId(Long requestedStaffId, Principal principal) {
-        if (requestedStaffId != null && requestedStaffId > 0) {
-            return requestedStaffId;
-        }
-        if (principal != null) {
-            return posRepository.staff(principal.getName())
-                    .map(s -> s.id())
-                    .orElse(1L);
-        }
-        return 1L;
-    }
 }
 

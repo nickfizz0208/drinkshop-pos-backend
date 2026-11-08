@@ -40,7 +40,7 @@ public class PosController {
         repo.one("SELECT 1 AS ok");
         return ResponseEntity.ok(Map.of("status","UP","application","drinkshop-pos-backend"));
     }
-    // HTTP Basic 驗證成功後，Principal 就是目前登入帳號；這裡回傳可顯示的員工資料。
+    // token 驗證成功後，Principal 就是目前登入帳號；這裡回傳可顯示的員工資料。
     @GetMapping("/auth/me")
     Map<String,Object> me(Principal principal) {
         var staff=orders.actor(principal.getName());

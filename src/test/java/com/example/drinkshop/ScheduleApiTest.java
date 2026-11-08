@@ -20,7 +20,7 @@ import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static com.example.drinkshop.TestLogin.login;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -56,7 +56,7 @@ class ScheduleApiTest {
 
     private ResultActions asManager(org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder b, String json) throws Exception {
         if (json != null) b = b.contentType(MediaType.APPLICATION_JSON).content(json);
-        return mvc.perform(b.with(httpBasic("p_manager", PASSWORD)));
+        return mvc.perform(b.with(login("p_manager", PASSWORD)));
     }
 
     private long createTemplate() throws Exception {
@@ -68,7 +68,7 @@ class ScheduleApiTest {
     @Test
     void staffListOnlyActive() throws Exception {
         jdbc.update("UPDATE staff_account SET active=FALSE WHERE staff_id=10");
-        mvc.perform(get("/api/staff").with(httpBasic("p_manager", PASSWORD)))
+        mvc.perform(get("/api/staff").with(login("p_manager", PASSWORD)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.staffId == 10)]").isEmpty())
                 .andExpect(jsonPath("$[?(@.staffId == 11)].name").value("測試店長"))
@@ -83,13 +83,13 @@ class ScheduleApiTest {
 
     @Test
     void onlyManagerCanManage() throws Exception {
-        mvc.perform(post("/api/schedule/templates").with(httpBasic("p_staff", PASSWORD))
+        mvc.perform(post("/api/schedule/templates").with(login("p_staff", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"早班\",\"startTime\":\"09:30\",\"endTime\":\"15:00\"}"))
                 .andExpect(status().isForbidden());
-        mvc.perform(post("/api/schedule/entries").with(httpBasic("p_staff", PASSWORD))
+        mvc.perform(post("/api/schedule/entries").with(login("p_staff", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"workDate\":\"2026-11-10\",\"staffId\":10,\"startTime\":\"09:00\",\"endTime\":\"12:00\"}"))
                 .andExpect(status().isForbidden());
-        mvc.perform(post("/api/schedule/week/publish?date=" + WEEK).with(httpBasic("p_staff", PASSWORD)))
+        mvc.perform(post("/api/schedule/week/publish?date=" + WEEK).with(login("p_staff", PASSWORD)))
                 .andExpect(status().isForbidden());
     }
 
@@ -137,7 +137,7 @@ class ScheduleApiTest {
         // 有重疊不能發布
         asManager(post("/api/schedule/week/publish?date=" + WEEK), null)
                 .andExpect(status().isConflict());
-        mvc.perform(get("/api/schedule/week?date=" + WEEK).with(httpBasic("p_staff", PASSWORD)))
+        mvc.perform(get("/api/schedule/week?date=" + WEEK).with(login("p_staff", PASSWORD)))
                 .andExpect(jsonPath("$.published").value(false));
     }
 
@@ -148,7 +148,7 @@ class ScheduleApiTest {
         long id = mapper.readTree(body).get("entry").get("scheduleId").asLong();
 
         // 未發布：員工看不到，店長看得到
-        mvc.perform(get("/api/schedule/week?date=" + WEEK).with(httpBasic("p_staff", PASSWORD)))
+        mvc.perform(get("/api/schedule/week?date=" + WEEK).with(login("p_staff", PASSWORD)))
                 .andExpect(jsonPath("$.published").value(false))
                 .andExpect(jsonPath("$.canEdit").value(false))
                 .andExpect(jsonPath("$.entries", hasSize(0)));
@@ -161,14 +161,14 @@ class ScheduleApiTest {
                 .andExpect(jsonPath("$.published").value(true))
                 .andExpect(jsonPath("$.weekStart").value("2026-11-09"))
                 .andExpect(jsonPath("$.modifiedAfterPublish").value(false));
-        mvc.perform(get("/api/schedule/week?date=" + WEEK).with(httpBasic("p_staff", PASSWORD)))
+        mvc.perform(get("/api/schedule/week?date=" + WEEK).with(login("p_staff", PASSWORD)))
                 .andExpect(jsonPath("$.entries", hasSize(1)));
 
         // 發布後修改：員工看到的仍是舊版，店長看到「有尚未發布的修改」
         asManager(delete("/api/schedule/entries/" + id), null).andExpect(status().isOk());
         asManager(post("/api/schedule/entries"), "{\"workDate\":\"2026-11-12\",\"staffId\":10,\"startTime\":\"18:00\",\"endTime\":\"21:00\"}")
                 .andExpect(status().isCreated());
-        mvc.perform(get("/api/schedule/week?date=" + WEEK).with(httpBasic("p_staff", PASSWORD)))
+        mvc.perform(get("/api/schedule/week?date=" + WEEK).with(login("p_staff", PASSWORD)))
                 .andExpect(jsonPath("$.entries", hasSize(1)))
                 .andExpect(jsonPath("$.entries[0].workDate").value("2026-11-10"))
                 .andExpect(jsonPath("$.modifiedAfterPublish").value(false));   // 員工不會看到這個標記
@@ -180,7 +180,7 @@ class ScheduleApiTest {
         // 再發布：員工看到新版，標記清除
         asManager(post("/api/schedule/week/publish?date=" + WEEK), null)
                 .andExpect(jsonPath("$.modifiedAfterPublish").value(false));
-        mvc.perform(get("/api/schedule/week?date=" + WEEK).with(httpBasic("p_staff", PASSWORD)))
+        mvc.perform(get("/api/schedule/week?date=" + WEEK).with(login("p_staff", PASSWORD)))
                 .andExpect(jsonPath("$.entries", hasSize(1)))
                 .andExpect(jsonPath("$.entries[0].workDate").value("2026-11-12"));
 
@@ -189,7 +189,7 @@ class ScheduleApiTest {
                 .andReturn().getResponse().getContentAsString()).get("entries").get(0).get("scheduleId").asLong();
         asManager(delete("/api/schedule/entries/" + id2), null).andExpect(status().isOk());
         asManager(post("/api/schedule/week/publish?date=" + WEEK), null).andExpect(status().isOk());
-        mvc.perform(get("/api/schedule/week?date=" + WEEK).with(httpBasic("p_staff", PASSWORD)))
+        mvc.perform(get("/api/schedule/week?date=" + WEEK).with(login("p_staff", PASSWORD)))
                 .andExpect(jsonPath("$.published").value(true))
                 .andExpect(jsonPath("$.entries", hasSize(0)));
     }
@@ -220,14 +220,14 @@ class ScheduleApiTest {
     @Test
     void defaultTagsAndOnlyManagerCanManageTags() throws Exception {
         // 預設四個標籤，所有登入帳號都能看；休息有說明
-        mvc.perform(get("/api/schedule/tags").with(httpBasic("p_staff", PASSWORD)))
+        mvc.perform(get("/api/schedule/tags").with(login("p_staff", PASSWORD)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(4)))
                 .andExpect(jsonPath("$[0].name").value("開班"))
                 .andExpect(jsonPath("$[3].name").value("休息"))
                 .andExpect(jsonPath("$[3].description").value("這段班可以中間休息半小時"));
         // 一般員工不能新增
-        mvc.perform(post("/api/schedule/tags").with(httpBasic("p_staff", PASSWORD))
+        mvc.perform(post("/api/schedule/tags").with(login("p_staff", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"外送\"}"))
                 .andExpect(status().isForbidden());
         // 店長新增、改名、停用
@@ -241,9 +241,9 @@ class ScheduleApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.active").value(false));
         // 停用的不在預設清單，includeInactive 才看得到
-        mvc.perform(get("/api/schedule/tags").with(httpBasic("p_staff", PASSWORD)))
+        mvc.perform(get("/api/schedule/tags").with(login("p_staff", PASSWORD)))
                 .andExpect(jsonPath("$", hasSize(4)));
-        mvc.perform(get("/api/schedule/tags?includeInactive=true").with(httpBasic("p_staff", PASSWORD)))
+        mvc.perform(get("/api/schedule/tags?includeInactive=true").with(login("p_staff", PASSWORD)))
                 .andExpect(jsonPath("$", hasSize(5)));
     }
 
@@ -269,7 +269,7 @@ class ScheduleApiTest {
 
         // 發布後員工看得到標籤
         asManager(post("/api/schedule/week/publish?date=2026-11-03"), null).andExpect(status().isOk());
-        mvc.perform(get("/api/schedule/week?date=2026-11-03").with(httpBasic("p_staff", PASSWORD)))
+        mvc.perform(get("/api/schedule/week?date=2026-11-03").with(login("p_staff", PASSWORD)))
                 .andExpect(jsonPath("$.entries[0].tagNames[0]").value("開班"))
                 .andExpect(jsonPath("$.entries[0].tagNames[1]").value("休息"));
 

@@ -4,6 +4,8 @@ import com.example.drinkshop.dto.DailyWastageSummaryResponse;
 import com.example.drinkshop.dto.RawMaterialWastageRequest;
 import com.example.drinkshop.entity.Inventory;
 import com.example.drinkshop.entity.OrderItem;
+import com.example.drinkshop.entity.Staff;
+import com.example.drinkshop.exception.ApiException;
 import com.example.drinkshop.repository.PosRepository;
 import com.example.drinkshop.service.WastageService;
 import jakarta.validation.Valid;
@@ -41,7 +43,7 @@ public class WastageController {
         if (request.inventoryId() == null) {
             throw new IllegalArgumentException("原料庫存編號 (inventoryId) 不能為空");
         }
-        Long staffId = resolveStaffId(request.staffId(), principal);
+        Long staffId = currentStaffId(principal);
 
         Inventory inventory = wastageService.recordRawMaterialWastage(
                 request.inventoryId(),
@@ -62,7 +64,7 @@ public class WastageController {
             @RequestBody Map<String, String> payload,
             Principal principal) {
         String reason = payload != null ? payload.getOrDefault("reason", "損耗報廢") : "損耗報廢";
-        Long staffId = resolveStaffId(null, principal);
+        Long staffId = currentStaffId(principal);
 
         OrderItem item = wastageService.recordOrderItemWastage(itemId, reason, staffId);
         return ResponseEntity.ok(item);
@@ -80,16 +82,12 @@ public class WastageController {
         return ResponseEntity.ok(summary);
     }
 
-    private Long resolveStaffId(Long requestedStaffId, Principal principal) {
-        if (requestedStaffId != null && requestedStaffId > 0) {
-            return requestedStaffId;
-        }
-        if (principal != null) {
-            return posRepository.staff(principal.getName())
-                    .map(s -> s.id())
-                    .orElse(1L);
-        }
-        return 1L;
+    // 經手人一律是目前登入的帳號，不接受前端指定，避免冒用別人的名義
+    private Long currentStaffId(Principal principal) {
+        return posRepository.staff(principal.getName())
+                .filter(Staff::active)
+                .map(Staff::id)
+                .orElseThrow(() -> ApiException.unauthorized("員工帳號已停用"));
     }
 }
 

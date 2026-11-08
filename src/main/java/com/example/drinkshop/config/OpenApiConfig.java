@@ -14,10 +14,10 @@ public class OpenApiConfig {
     OpenAPI posOpenApi() {
         return new OpenAPI()
             .info(new Info().title("手搖飲 POS API").version("v1")
-                .description("使用 Authorize 輸入有效員工帳密，再以 Try it out 測試 API。寫入操作會修改目前連線的資料庫。"))
-            .components(new Components().addSecuritySchemes("basicAuth",
-                new SecurityScheme().type(SecurityScheme.Type.HTTP).scheme("basic")
-                    .description("有效的員工帳號與密碼（HTTP Basic）")))
-            .addSecurityItem(new SecurityRequirement().addList("basicAuth"));
+                .description("先用 POST /api/auth/login 取得 token，按 Authorize 貼上 token，再以 Try it out 測試 API。寫入操作會修改目前連線的資料庫。"))
+            .components(new Components().addSecuritySchemes("bearerAuth",
+                new SecurityScheme().type(SecurityScheme.Type.HTTP).scheme("bearer").bearerFormat("JWT")
+                    .description("POST /api/auth/login 回傳的 token")))
+            .addSecurityItem(new SecurityRequirement().addList("bearerAuth"));
     }
 }

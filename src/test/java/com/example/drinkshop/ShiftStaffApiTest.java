@@ -18,7 +18,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 
 import static org.hamcrest.Matchers.hasSize;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static com.example.drinkshop.TestLogin.login;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -61,14 +61,14 @@ class ShiftStaffApiTest {
 
     private org.springframework.test.web.servlet.ResultActions clock(String action, long staffId) throws Exception {
         // 上下班打卡只限 POS 共用帳號
-        return mvc.perform(post("/api/shift-staff/" + action).with(httpBasic("s_pos", PASSWORD))
+        return mvc.perform(post("/api/shift-staff/" + action).with(login("s_pos", PASSWORD))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"staffId\":" + staffId + "}"));
     }
 
     @Test
     void cannotClockInBeforeShiftOpens() throws Exception {
         clock("clock-in", 10).andExpect(status().isConflict());
-        mvc.perform(get("/api/shift-staff/today").with(httpBasic("s_staff", PASSWORD)))
+        mvc.perform(get("/api/shift-staff/today").with(login("s_staff", PASSWORD)))
                 .andExpect(jsonPath("$.shiftStatus").value("NONE"))
                 .andExpect(jsonPath("$.records", hasSize(0)));
     }
@@ -77,7 +77,7 @@ class ShiftStaffApiTest {
     void todayShowsShiftStatusAndRecords() throws Exception {
         openToday();
         clock("clock-in", 10).andExpect(status().isCreated());
-        mvc.perform(get("/api/shift-staff/today").with(httpBasic("s_staff", PASSWORD)))
+        mvc.perform(get("/api/shift-staff/today").with(login("s_staff", PASSWORD)))
                 .andExpect(jsonPath("$.shiftStatus").value("OPEN"))
                 .andExpect(jsonPath("$.records", hasSize(1)))
                 .andExpect(jsonPath("$.records[0].onDuty").value(true));
@@ -91,17 +91,17 @@ class ShiftStaffApiTest {
                 .andExpect(jsonPath("$.onDuty").value(true));
         // 還在班不能重複上班打卡
         clock("clock-in", 10).andExpect(status().isConflict());
-        mvc.perform(get("/api/shift-staff/on-duty").with(httpBasic("s_pos", PASSWORD)))
+        mvc.perform(get("/api/shift-staff/on-duty").with(login("s_pos", PASSWORD)))
                 .andExpect(jsonPath("$", hasSize(1)));
 
         clock("clock-out", 10).andExpect(status().isOk()).andExpect(jsonPath("$.onDuty").value(false));
         clock("clock-out", 10).andExpect(status().isConflict());
-        mvc.perform(get("/api/shift-staff/on-duty").with(httpBasic("s_pos", PASSWORD)))
+        mvc.perform(get("/api/shift-staff/on-duty").with(login("s_pos", PASSWORD)))
                 .andExpect(jsonPath("$", hasSize(0)));
 
         // 同一天可以再上班
         clock("clock-in", 10).andExpect(status().isCreated());
-        mvc.perform(get("/api/shift-staff").with(httpBasic("s_staff", PASSWORD)))
+        mvc.perform(get("/api/shift-staff").with(login("s_staff", PASSWORD)))
                 .andExpect(jsonPath("$", hasSize(2)));
     }
 
@@ -114,21 +114,21 @@ class ShiftStaffApiTest {
         clock("clock-in", 10).andExpect(status().isCreated());   // 自己
 
         // 一般員工：看得到在班的店長和自己，看不到已下班的別人
-        mvc.perform(get("/api/shift-staff/today").with(httpBasic("s_staff", PASSWORD)))
+        mvc.perform(get("/api/shift-staff/today").with(login("s_staff", PASSWORD)))
                 .andExpect(jsonPath("$.canViewAll").value(false))
                 .andExpect(jsonPath("$.records", hasSize(2)))
                 .andExpect(jsonPath("$.records[?(@.staffId == 13)]").isEmpty());
-        mvc.perform(get("/api/shift-staff").with(httpBasic("s_staff", PASSWORD)))
+        mvc.perform(get("/api/shift-staff").with(login("s_staff", PASSWORD)))
                 .andExpect(jsonPath("$", hasSize(1)))
                 .andExpect(jsonPath("$[0].staffId").value(10));
-        mvc.perform(get("/api/shift-staff/mine").with(httpBasic("s_staff", PASSWORD)))
+        mvc.perform(get("/api/shift-staff/mine").with(login("s_staff", PASSWORD)))
                 .andExpect(jsonPath("$", hasSize(1)));
 
         // 店長：全部
-        mvc.perform(get("/api/shift-staff/today").with(httpBasic("s_manager", PASSWORD)))
+        mvc.perform(get("/api/shift-staff/today").with(login("s_manager", PASSWORD)))
                 .andExpect(jsonPath("$.canViewAll").value(true))
                 .andExpect(jsonPath("$.records", hasSize(3)));
-        mvc.perform(get("/api/shift-staff").with(httpBasic("s_manager", PASSWORD)))
+        mvc.perform(get("/api/shift-staff").with(login("s_manager", PASSWORD)))
                 .andExpect(jsonPath("$", hasSize(3)));
     }
 
@@ -137,18 +137,18 @@ class ShiftStaffApiTest {
     void clockIsPosOnlyAndRecordsAreForPersonalAccounts() throws Exception {
         openToday();
         for (String user : java.util.List.of("s_staff", "s_manager")) {
-            mvc.perform(post("/api/shift-staff/clock-in").with(httpBasic(user, PASSWORD))
+            mvc.perform(post("/api/shift-staff/clock-in").with(login(user, PASSWORD))
                     .contentType(MediaType.APPLICATION_JSON).content("{\"staffId\":10}"))
                     .andExpect(status().isForbidden());
-            mvc.perform(get("/api/shift-staff/on-duty").with(httpBasic(user, PASSWORD)))
+            mvc.perform(get("/api/shift-staff/on-duty").with(login(user, PASSWORD)))
                     .andExpect(status().isForbidden());
         }
         for (String path : java.util.List.of("/api/shift-staff/mine", "/api/shift-staff")) {
-            mvc.perform(get(path).with(httpBasic("s_pos", PASSWORD))).andExpect(status().isForbidden());
-            mvc.perform(get(path).with(httpBasic("s_staff", PASSWORD))).andExpect(status().isOk());
+            mvc.perform(get(path).with(login("s_pos", PASSWORD))).andExpect(status().isForbidden());
+            mvc.perform(get(path).with(login("s_staff", PASSWORD))).andExpect(status().isOk());
         }
         // 今日狀態 POS 也要用（打卡畫面判斷開班、在班）
-        mvc.perform(get("/api/shift-staff/today").with(httpBasic("s_pos", PASSWORD)))
+        mvc.perform(get("/api/shift-staff/today").with(login("s_pos", PASSWORD)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.shiftStatus").value("OPEN"));
     }
@@ -169,10 +169,10 @@ class ShiftStaffApiTest {
         String update = "{\"clockInAt\":\"" + clockIn + "\",\"clockOutAt\":\"" +
                 LocalDateTime.parse(clockIn).plusHours(4) + "\"}";
 
-        mvc.perform(put("/api/shift-staff/" + id).with(httpBasic("s_staff", PASSWORD))
+        mvc.perform(put("/api/shift-staff/" + id).with(login("s_staff", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content(update))
                 .andExpect(status().isForbidden());
-        mvc.perform(put("/api/shift-staff/" + id).with(httpBasic("s_manager", PASSWORD))
+        mvc.perform(put("/api/shift-staff/" + id).with(login("s_manager", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content(update))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.onDuty").value(false))
@@ -181,15 +181,15 @@ class ShiftStaffApiTest {
         // 下班早於上班
         String bad = "{\"clockInAt\":\"" + clockIn + "\",\"clockOutAt\":\"" +
                 LocalDateTime.parse(clockIn).minusHours(1) + "\"}";
-        mvc.perform(put("/api/shift-staff/" + id).with(httpBasic("s_manager", PASSWORD))
+        mvc.perform(put("/api/shift-staff/" + id).with(login("s_manager", PASSWORD))
                         .contentType(MediaType.APPLICATION_JSON).content(bad))
                 .andExpect(status().isBadRequest());
 
-        mvc.perform(delete("/api/shift-staff/" + id).with(httpBasic("s_staff", PASSWORD)))
+        mvc.perform(delete("/api/shift-staff/" + id).with(login("s_staff", PASSWORD)))
                 .andExpect(status().isForbidden());
-        mvc.perform(delete("/api/shift-staff/" + id).with(httpBasic("s_manager", PASSWORD)))
+        mvc.perform(delete("/api/shift-staff/" + id).with(login("s_manager", PASSWORD)))
                 .andExpect(status().isOk());
-        mvc.perform(get("/api/shift-staff").with(httpBasic("s_staff", PASSWORD)))
+        mvc.perform(get("/api/shift-staff").with(login("s_staff", PASSWORD)))
                 .andExpect(jsonPath("$", hasSize(0)));
     }
 }

@@ -10,3 +10,5 @@ pos.demo.enabled=true
 pos.demo.password=123456
 HERE_API_KEY=<見共用文件>
 HERE_MAP_KEY=<見共用文件>
+# 選填：登入 token 的簽章密鑰（至少 32 個字元，可隨便打一長串）。沒設定的話後端每次重開，大家都要重新登入。
+# POS_JWT_SECRET=請改成至少32個字元的隨機字串
