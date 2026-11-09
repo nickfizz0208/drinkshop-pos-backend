@@ -306,3 +306,25 @@ CREATE TABLE raw_material_wastage (
          (unit_cost >= 0 AND material_cost >= 0 AND unit_cost IS NOT NULL AND material_cost IS NOT NULL)),
   INDEX idx_raw_wastage_date (business_date)
 );
+
+-- 016：原料盤點紀錄
+CREATE TABLE inventory_count (
+  count_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  request_id CHAR(36) NOT NULL,
+  inventory_id BIGINT NOT NULL,
+  counted_qty DECIMAL(12,2) NOT NULL,
+  book_qty DECIMAL(12,2) NOT NULL,
+  diff_qty DECIMAL(12,2) NOT NULL,
+  unit_cost DECIMAL(10,2) NULL,
+  counted_by BIGINT NOT NULL,
+  counted_at DATETIME(6) NOT NULL,
+  note VARCHAR(255) NULL,
+  FOREIGN KEY (inventory_id) REFERENCES inventory(inventory_id),
+  FOREIGN KEY (counted_by) REFERENCES staff_account(staff_id),
+  CONSTRAINT uq_inventory_count_request UNIQUE (request_id, inventory_id),
+  CHECK (counted_qty >= 0 AND book_qty >= 0),
+  CHECK (diff_qty = counted_qty - book_qty),
+  CHECK (unit_cost IS NULL OR unit_cost >= 0),
+  INDEX idx_inventory_count_time (counted_at)
+);
+ALTER TABLE inventory ADD COLUMN allow_decimal BOOLEAN NOT NULL DEFAULT TRUE;

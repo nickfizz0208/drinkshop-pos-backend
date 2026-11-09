@@ -28,6 +28,7 @@
 1. 資料庫負責人先審查 [009_raw_material_wastage.sql](../database/009_raw_material_wastage.sql)。需要先在本機確認並備份，再安排共用庫升級；不要自行對 Aiven 執行。
 2. 009 未升級前，預設 `pos.raw-wastage.enabled=false`。原料報廢 API 回 503，**不扣庫存**；日結與訂單報廢仍可使用。摘要的 rawWastageEnabled=false 表示尚未納入原料事件紀錄，不能解讀為歷來沒有原料損耗。
 3. 確認升級成功後，在本機未追蹤的 `.pos-local.properties` 加 `pos.raw-wastage.enabled=true`，重新啟動後端。這項設定本身不會建表。
+   **更新：共用庫已建立 `raw_material_wastage`，`application.properties` 已改為預設啟用。** 連到沒有這張表的資料庫時，改在 `.pos-local.properties` 設 `pos.raw-wastage.enabled=false`。
 4. 啟用後扣料與損耗事件寫入共用一筆資料庫交易；事件寫入失敗則一起回滾。未知成本保存 null，不以售價估算。
 
 沒有改動 Aiven、沒有執行 009、沒有自動重啟目前正在使用的舊後端。

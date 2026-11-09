@@ -103,4 +103,10 @@ SQL 僅以獨立的 POS 資料庫為目標。
 
 ## 原料報廢修正（尚未套用共用庫）
 
-`009_raw_material_wastage.sql` 新增原料損耗事件表，須由資料庫負責人先確認；不可自行對 Aiven 執行。預設未啟用寫入，不會自動建表。行為及啟用步驟見 [CLOSING_WASTAGE_FIX.md](../docs/CLOSING_WASTAGE_FIX.md)。
+`009_raw_material_wastage.sql` 新增原料損耗事件表，共用庫已建立，`application.properties` 預設啟用寫入。連到沒有這張表的資料庫時，請在 `.pos-local.properties` 設 `pos.raw-wastage.enabled=false`；設定本身不會自動建表。行為及啟用步驟見 [CLOSING_WASTAGE_FIX.md](../docs/CLOSING_WASTAGE_FIX.md)。
+
+## 原料盤點紀錄（尚未套用共用庫）
+
+`016_inventory_count.sql` 新增盤點紀錄表 `inventory_count`：每次盤點每項原料一列，保存當時的帳面數量、實點數量、差異與單位成本。同一支檔案也在 `inventory` 加上 `allow_decimal`（預設 TRUE），控制盤點時小單位能不能填小數，例如紙杯可設成只能填整數：`UPDATE inventory SET allow_decimal = FALSE WHERE name IN ('中杯紙杯', '大杯紙杯');`。盤點只記錄，不修改 `inventory.book_qty`；`inventory.reported_qty`／`reported_by`／`reported_at` 仍會更新成最新一次。
+
+須由資料庫負責人先確認升級，不可自行對 Aiven 執行。預設未啟用：升級成功後，在本機未追蹤的 `.pos-local.properties` 加上 `pos.inventory-count.enabled=true` 並重新啟動後端，盤點頁才能送出。未啟用時送出盤點會回 503，不會寫入任何資料。
