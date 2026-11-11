@@ -14,7 +14,7 @@ public record DailyWastageSummaryResponse(
         // 當日報廢總杯數
         Integer totalWastedCount,
 
-        // 當日報廢原料與飲品總成本金額
+        // 當日原料報廢成本合計（飲品不計成本，021）；有原料沒建單位成本時為 null
         BigDecimal totalWastageCost,
 
         // 當日報廢品項明細清單

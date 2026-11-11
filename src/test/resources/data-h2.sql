@@ -18,22 +18,27 @@ INSERT INTO inventory (inventory_id,name,base_unit,pack_unit,per_pack,book_qty,s
  (7,'茶凍','份',NULL,NULL,100,20),
  (8,'芒果冰沙料','份',NULL,NULL,8,10);
 
--- Recipe items reference inventory IDs, never ingredient names as keys.
--- Quantities are per cup; M/L recipes include the appropriate paper cup.
-INSERT INTO product (product_id,name,category,base_price,large_extra,hot_allowed,recipe_steps,recipe_json,min_view_level) VALUES
- (1,'經典紅茶','茶類',25,5,TRUE,'依杯型備杯，加入紅茶，依客製甜度與冰量調製。',
- '{"M":[{"inventoryId":1,"qty":1},{"inventoryId":3,"qty":1}],"L":[{"inventoryId":2,"qty":1},{"inventoryId":3,"qty":1}]}','TRAINEE'),
- (2,'茉香綠茶','茶類',25,5,TRUE,'依杯型備杯，加入綠茶，依客製甜度與冰量調製。',
- '{"M":[{"inventoryId":1,"qty":1},{"inventoryId":4,"qty":1}],"L":[{"inventoryId":2,"qty":1},{"inventoryId":4,"qty":1}]}','TRAINEE'),
- (3,'經典奶茶','奶茶',40,10,TRUE,'依杯型備杯，混合紅茶與一份奶料，依客製規格調製。',
- '{"M":[{"inventoryId":1,"qty":1},{"inventoryId":3,"qty":1},{"inventoryId":5,"qty":1}],"L":[{"inventoryId":2,"qty":1},{"inventoryId":3,"qty":1},{"inventoryId":5,"qty":1}]}','TRAINEE'),
- (4,'珍珠奶茶','奶茶',50,10,TRUE,'依杯型備杯，加入一份珍珠、紅茶與一份奶料。品項已含珍珠，額外點珍珠代表再加一份。',
- '{"M":[{"inventoryId":1,"qty":1},{"inventoryId":3,"qty":1},{"inventoryId":5,"qty":1},{"inventoryId":6,"qty":1}],"L":[{"inventoryId":2,"qty":1},{"inventoryId":3,"qty":1},{"inventoryId":5,"qty":1},{"inventoryId":6,"qty":1}]}','STAFF'),
- (5,'芒果冰沙','冰沙',55,10,FALSE,'依杯型備杯，加入一份冰沙料，以固定正常甜度與正常冰量攪打。',
- '{"M":[{"inventoryId":1,"qty":1},{"inventoryId":8,"qty":1}],"L":[{"inventoryId":2,"qty":1},{"inventoryId":8,"qty":1}]}','STAFF');
+-- 021：配方只記材料清單（中大杯共用、不含紙杯），份量寫在 recipe_steps；茶凍是半成品
+INSERT INTO product (product_id,name,category,base_price,large_extra,hot_allowed,recipe_steps,min_view_level) VALUES
+ (1,'經典紅茶','茶類',25,5,TRUE,'依杯型備杯，加入紅茶，依客製甜度與冰量調製。','TRAINEE'),
+ (2,'茉香綠茶','茶類',25,5,TRUE,'依杯型備杯，加入綠茶，依客製甜度與冰量調製。','TRAINEE'),
+ (3,'經典奶茶','奶茶',40,10,TRUE,'依杯型備杯，混合紅茶與一份奶料，依客製規格調製。','TRAINEE'),
+ (4,'珍珠奶茶','奶茶',50,10,TRUE,'依杯型備杯，加入一份珍珠、紅茶與一份奶料。品項已含珍珠，額外點珍珠代表再加一份。','TRAINEE'),
+ (5,'芒果冰沙','冰沙',55,10,FALSE,'依杯型備杯，加入一份冰沙料，以固定正常甜度與正常冰量攪打。','STAFF');
 
-INSERT INTO topping (topping_id,name,price,inventory_id,deduct_qty) VALUES
- (1,'珍珠',10,6,1),(2,'茶凍',10,7,1);
+INSERT INTO prep_item (prep_id,name,steps) VALUES (1,'茶凍','紅茶煮好後加吉利丁冷藏定型。');
+INSERT INTO prep_item_ingredient (prep_id,inventory_id) VALUES (1,3);
+ALTER TABLE prep_item ALTER COLUMN prep_id RESTART WITH 2;
+
+INSERT INTO product_recipe (product_id,inventory_id,prep_id,sort_order) VALUES
+ (1,3,NULL,1),
+ (2,4,NULL,1),
+ (3,3,NULL,1),(3,5,NULL,2),
+ (4,3,NULL,1),(4,5,NULL,2),(4,6,NULL,3),
+ (5,8,NULL,1);
+
+INSERT INTO topping (topping_id,name,price,inventory_id,prep_id) VALUES
+ (1,'珍珠',10,6,NULL),(2,'茶凍',10,NULL,1);
 
 -- JSON contract examples, not an implemented rules engine.
 INSERT INTO conflict_rule (rule_id,rule_type,condition_json,action_json,message) VALUES

@@ -36,7 +36,7 @@ public class WastageService {
     }
 
     public Inventory recordRawMaterialWastage(Long id, BigDecimal quantity, String reason, Long staffId) {
-        // 共用庫未獲同意升級前不扣庫存，避免出現扣了料卻沒有損耗紀錄的半成品操作。
+        // 共用庫未升級 009 前不登記，避免畫面顯示成功卻沒有損耗紀錄。
         if (!rawEnabled) throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
             "原料損耗紀錄尚未啟用，請先由資料庫負責人確認 009 升級");
         if (id==null || id<=0 || quantity==null || quantity.signum()<=0 || quantity.scale()>2)
@@ -46,15 +46,15 @@ public class WastageService {
         var shift=repo.rows("SELECT status FROM daily_shift WHERE business_date=? FOR UPDATE",date);
         if (shift.isEmpty() || !"OPEN".equals(shift.getFirst().get("status")))
             throw ApiException.conflict("當日未開班或已日結，不能登記原料損耗");
-        Inventory updated=inventory.deductStock(id,quantity);
+        // 原料報廢不扣帳面庫存（帳面以盤點為準），只記錄數量、原因與當時成本
+        Inventory updated=inventory.getInventoryById(id);
         BigDecimal unitCost=updated.getUnitCost();
         BigDecimal cost=unitCost==null?null:Money.checked(unitCost.multiply(quantity).setScale(2,RoundingMode.HALF_UP));
-        // 與扣料共用同筆交易；資料表不存在或紀錄寫入失敗，扣料也會回滾。
         repo.insert("wastage_id", """
             INSERT INTO raw_material_wastage(business_date,inventory_id,quantity,unit_cost,material_cost,reason,reported_by,reported_at)
             VALUES (?,?,?,?,?,?,?,?)
             """,date,id,quantity,unitCost,cost,reason.trim(),staffId,LocalDateTime.now(clock));
-        return updated; // 報廢不是盤點，不改 reported_qty/reported_by 等盤點欄位。
+        return updated; // 報廢不是盤點，不改 book_qty，也不改 reported_qty/reported_by 等盤點欄位。
     }
 
     public OrderItem recordOrderItemWastage(Long itemId, String reason, BigDecimal refundAmount, String username) {
@@ -79,8 +79,7 @@ public class WastageService {
             """,date)) {
             OrderItem item=items.findById(PosRepository.number(row,"item_id")).orElseThrow();
             cups+=item.getQty();
-            if (item.getMaterialCost()==null) complete=false;
-            else total=total.add(item.getMaterialCost()); // material_cost 已是這筆明細全部杯數的成本。
+            // 飲品不計原料成本（配方只記材料、沒有份量，021），飲品報廢只算杯數；損耗金額只加總原料報廢。
             wasted.add(new OrderItemDto(item.getItemId(),item.getOrderId(),item.getProductId(),item.getProductName(),
                 item.getSize(),item.getTemperature(),item.getSugar(),item.getIce(),item.getQty(),item.getUnitPrice(),
                 item.getStatus(),item.getNote(),item.getCreatedAt()));
@@ -95,7 +94,7 @@ public class WastageService {
                 row.get("reason").toString(),PosRepository.number(row,"reported_by"),
                 timestamp(row.get("reported_at"))));
         }
-        // NULL 明確表示無法給完整成本；前端可用 costComplete 顯示「成本未建檔」。
+        // 損耗金額＝原料報廢成本合計；有原料沒建單位成本時為 NULL（costComplete=false），前端顯示「成本未建檔」。
         return new DailyWastageSummaryResponse(date,cups,complete?total:null,wasted,complete,rawEnabled,raw);
     }
     private static LocalDateTime timestamp(Object value) {

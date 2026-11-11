@@ -57,6 +57,12 @@ public class Inventory {
     @Column(name = "unit_cost", precision = 10, scale = 2)
     private BigDecimal unitCost;
 
+    // 畫面用「大單位＋小單位」顯示（例如 5 籃 3 顆）；資料庫照樣存基本單位數量（019）。只讀，不由這個實體寫入
+    @Column(name = "display_by_pack", insertable = false, updatable = false)
+    private Boolean displayByPack = false;
+
+    public boolean isDisplayByPack() { return Boolean.TRUE.equals(displayByPack); }
+
     public Inventory() {
     }
 

@@ -31,8 +31,7 @@ erDiagram
         decimal base_price "中杯價格"
         decimal large_extra "大杯加價"
         tinyint hot_allowed
-        text recipe_steps
-        json recipe_json
+        text recipe_steps "做法與份量（文字）"
         enum min_view_level
         tinyint on_sale
     }
@@ -41,9 +40,27 @@ erDiagram
         bigint topping_id PK
         varchar name UK
         decimal price "加料價格"
-        bigint inventory_id FK
-        decimal deduct_qty
+        bigint inventory_id FK "原料，和 prep_id 剛好填一個"
+        bigint prep_id FK "半成品"
         tinyint on_sale
+    }
+    %% 半成品（021）：店內做的，例如茶凍、紅茶湯
+    prep_item {
+        bigint prep_id PK
+        varchar name UK
+        text steps "做法（文字）"
+    }
+    prep_item_ingredient {
+        bigint prep_id PK, FK
+        bigint inventory_id PK, FK
+    }
+    %% 飲品材料清單（021）：只記用了什麼，中大杯共用
+    product_recipe {
+        bigint line_id PK
+        bigint product_id FK
+        bigint inventory_id FK "原料，和 prep_id 剛好填一個"
+        bigint prep_id FK "半成品"
+        int sort_order
     }
     %% 衝突規則
     conflict_rule {
@@ -150,7 +167,13 @@ erDiagram
     staff_account |o--o{ order_item : "approved_by 可空白"
     order_item ||--o{ order_item_topping : "item_id 可不加料"
     topping ||--o{ order_item_topping : "topping_id"
-    inventory ||--o{ topping : "inventory_id"
+    inventory |o--o{ topping : "inventory_id"
+    prep_item |o--o{ topping : "prep_id"
+    product ||--o{ product_recipe : "product_id"
+    inventory |o--o{ product_recipe : "inventory_id"
+    prep_item |o--o{ product_recipe : "prep_id"
+    prep_item ||--o{ prep_item_ingredient : "prep_id"
+    inventory ||--o{ prep_item_ingredient : "inventory_id"
     staff_account |o--o{ inventory : "reported_by 可空白"
     staff_account ||--o{ daily_shift : "opened_by"
     staff_account |o--o{ daily_shift : "closed_by 可空白"

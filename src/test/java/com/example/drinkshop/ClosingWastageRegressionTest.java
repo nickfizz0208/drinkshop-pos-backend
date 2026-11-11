@@ -135,11 +135,12 @@ public class ClosingWastageRegressionTest {
         org.junit.jupiter.api.Assertions.assertEquals(15,receipts.path("CASH").asInt());
         org.junit.jupiter.api.Assertions.assertEquals(25,receipts.path("LINE_PAY").asInt());
     }
-    @Test void rawWastageKeepsReasonCostSnapshotAndLeavesStockCountUntouched() throws Exception {
+    @Test void rawWastageKeepsReasonCostSnapshotAndLeavesStockUntouched() throws Exception {
         jdbc.update("UPDATE inventory SET unit_cost=2,reported_qty=99,reported_by=1,reported_at=CURRENT_TIMESTAMP WHERE inventory_id=1");
         BigDecimal before=jdbc.queryForObject("SELECT book_qty FROM inventory WHERE inventory_id=1",BigDecimal.class);
         raw("{\"inventoryId\":1,\"wastageQty\":3,\"reason\":\"測試打翻\"}");
-        org.junit.jupiter.api.Assertions.assertEquals(0,before.subtract(new BigDecimal("3")).compareTo(jdbc.queryForObject("SELECT book_qty FROM inventory WHERE inventory_id=1",BigDecimal.class)));
+        // 原料報廢只留紀錄，不扣帳面（帳面以盤點為準）
+        org.junit.jupiter.api.Assertions.assertEquals(0,before.compareTo(jdbc.queryForObject("SELECT book_qty FROM inventory WHERE inventory_id=1",BigDecimal.class)));
         org.junit.jupiter.api.Assertions.assertEquals(99,jdbc.queryForObject("SELECT reported_qty FROM inventory WHERE inventory_id=1",BigDecimal.class).intValue());
         jdbc.update("UPDATE inventory SET unit_cost=9 WHERE inventory_id=1");
         var summary=wastes.getDailyWastageSummary(day);
@@ -176,14 +177,15 @@ public class ClosingWastageRegressionTest {
             orders.changeStatus(order.get("order_id").asLong(),id,status,TEST_USER);
         waste(id,"{\"reason\":\"已取餐\"}").andExpect(status().isConflict());
     }
-    @Test void unknownCostIsNotSubstitutedWithSellingPrice() throws Exception {
+    @Test void drinkWastageCountsCupsButNotCost() throws Exception {
+        // 飲品不計原料成本（021）：報廢只算杯數，不會把損耗金額變成「未建檔」，也不拿售價代替
         var order=create(com.example.drinkshop.dto.OrderRequests.Payment.LINE_PAY,false); long id=itemId(order);
         orders.changeStatus(order.get("order_id").asLong(),id,com.example.drinkshop.dto.OrderRequests.ItemStatus.MAKING,TEST_USER);
         waste(id,"{\"reason\":\"做錯\"}").andExpect(status().isOk());
-        jdbc.update("UPDATE order_item SET material_cost=NULL WHERE item_id=?",id);
         var summary=wastes.getDailyWastageSummary(day);
-        org.junit.jupiter.api.Assertions.assertFalse(summary.costComplete());
-        org.junit.jupiter.api.Assertions.assertNull(summary.totalWastageCost());
+        org.junit.jupiter.api.Assertions.assertTrue(summary.totalWastedCount() >= 1);
+        org.junit.jupiter.api.Assertions.assertTrue(summary.costComplete());
+        org.junit.jupiter.api.Assertions.assertEquals(0,BigDecimal.ZERO.compareTo(summary.totalWastageCost()));
     }
     @Test void actorCannotBeOverriddenInStockReportOpeningOrClosing() throws Exception {
         // 盤點：經手人一律是登入帳號；前端多帶 staffId 直接 400
@@ -286,11 +288,14 @@ public class ClosingWastageRegressionTest {
     }
 
     @org.junit.jupiter.api.RepeatedTest(3)
-    void concurrentRawWastagesOnlyDeductAvailableStock() throws Exception {
+    void rawWastageIsRecordedEvenWhenBookStockIsLower() throws Exception {
+        // 帳面只有 3，同時登記兩筆各 2：兩筆都要記錄，帳面不變
         jdbc.update("UPDATE inventory SET book_qty=3,unit_cost=2 WHERE inventory_id=1");
-        runTwoDeductions(() -> wastes.recordRawMaterialWastage(1L,new BigDecimal("2"),"同時報廢測試",10L));
-        org.junit.jupiter.api.Assertions.assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM raw_material_wastage",Integer.class));
-        org.junit.jupiter.api.Assertions.assertEquals(0,new BigDecimal("4").compareTo(wastes.getDailyWastageSummary(day).totalWastageCost()));
+        wastes.recordRawMaterialWastage(1L,new BigDecimal("2"),"同時報廢測試",10L);
+        wastes.recordRawMaterialWastage(1L,new BigDecimal("2"),"同時報廢測試",10L);
+        org.junit.jupiter.api.Assertions.assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM raw_material_wastage",Integer.class));
+        org.junit.jupiter.api.Assertions.assertEquals(0,new BigDecimal("8").compareTo(wastes.getDailyWastageSummary(day).totalWastageCost()));
+        org.junit.jupiter.api.Assertions.assertEquals(0,new BigDecimal("3").compareTo(jdbc.queryForObject("SELECT book_qty FROM inventory WHERE inventory_id=1",BigDecimal.class)));
     }
 
     @org.junit.jupiter.api.RepeatedTest(3)

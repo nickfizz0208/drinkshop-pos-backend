@@ -55,21 +55,50 @@ CREATE TABLE product (
   large_extra DECIMAL(10,2) NOT NULL DEFAULT 0,
   hot_allowed BOOLEAN NOT NULL DEFAULT TRUE,
   recipe_steps TEXT NOT NULL,
-  recipe_json JSON NOT NULL,
   min_view_level ENUM('TRAINEE','STAFF','POS','MANAGER','HQ') NOT NULL DEFAULT 'TRAINEE',
   on_sale BOOLEAN NOT NULL DEFAULT TRUE,
   CHECK (base_price >= 0 AND large_extra >= 0)
+);
+
+-- 021：半成品與材料清單
+CREATE TABLE prep_item (
+  prep_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(30) NOT NULL,
+  steps TEXT NULL,
+  CONSTRAINT uq_prep_item_name UNIQUE (name)
+);
+CREATE TABLE prep_item_ingredient (
+  prep_id BIGINT NOT NULL,
+  inventory_id BIGINT NOT NULL,
+  PRIMARY KEY (prep_id, inventory_id),
+  CONSTRAINT fk_prep_ingredient_prep FOREIGN KEY (prep_id) REFERENCES prep_item(prep_id),
+  CONSTRAINT fk_prep_ingredient_inventory FOREIGN KEY (inventory_id) REFERENCES inventory(inventory_id)
+);
+CREATE TABLE product_recipe (
+  line_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  product_id BIGINT NOT NULL,
+  inventory_id BIGINT NULL,
+  prep_id BIGINT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  CONSTRAINT fk_product_recipe_product FOREIGN KEY (product_id) REFERENCES product(product_id),
+  CONSTRAINT fk_product_recipe_inventory FOREIGN KEY (inventory_id) REFERENCES inventory(inventory_id),
+  CONSTRAINT fk_product_recipe_prep FOREIGN KEY (prep_id) REFERENCES prep_item(prep_id),
+  CONSTRAINT uq_product_recipe_inventory UNIQUE (product_id, inventory_id),
+  CONSTRAINT uq_product_recipe_prep UNIQUE (product_id, prep_id),
+  CONSTRAINT chk_product_recipe_one CHECK ((inventory_id IS NULL) <> (prep_id IS NULL))
 );
 
 CREATE TABLE topping (
   topping_id BIGINT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(30) NOT NULL UNIQUE,
   price DECIMAL(10,2) NOT NULL,
-  inventory_id BIGINT NOT NULL,
-  deduct_qty DECIMAL(12,2) NOT NULL,
+  inventory_id BIGINT NULL,
+  prep_id BIGINT NULL,
   on_sale BOOLEAN NOT NULL DEFAULT TRUE,
   FOREIGN KEY (inventory_id) REFERENCES inventory(inventory_id),
-  CHECK (price >= 0 AND deduct_qty > 0)
+  FOREIGN KEY (prep_id) REFERENCES prep_item(prep_id),
+  CHECK (price >= 0),
+  CHECK ((inventory_id IS NULL) <> (prep_id IS NULL))
 );
 
 CREATE TABLE conflict_rule (
@@ -307,24 +336,59 @@ CREATE TABLE raw_material_wastage (
   INDEX idx_raw_wastage_date (business_date)
 );
 
--- 016：原料盤點紀錄
+-- 016／017：原料盤點紀錄（表頭／明細）
+-- 018：盤點類型
+CREATE TABLE inventory_count_type (
+  type_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(20) NOT NULL,
+  input_mode VARCHAR(20) NOT NULL,
+  all_items BOOLEAN NOT NULL DEFAULT FALSE,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_by BIGINT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  CONSTRAINT uq_count_type_name UNIQUE (name),
+  CONSTRAINT fk_count_type_staff FOREIGN KEY (updated_by) REFERENCES staff_account(staff_id),
+  CONSTRAINT chk_count_type_mode CHECK (input_mode IN ('PACK_AND_LOOSE', 'PACK_ONLY'))
+);
+CREATE TABLE inventory_count_type_item (
+  type_id BIGINT NOT NULL,
+  inventory_id BIGINT NOT NULL,
+  PRIMARY KEY (type_id, inventory_id),
+  CONSTRAINT fk_count_type_item_type FOREIGN KEY (type_id) REFERENCES inventory_count_type(type_id),
+  CONSTRAINT fk_count_type_item_inventory FOREIGN KEY (inventory_id) REFERENCES inventory(inventory_id)
+);
+INSERT INTO inventory_count_type (type_id, name, input_mode, all_items, active, updated_at)
+VALUES (1, '大盤', 'PACK_AND_LOOSE', TRUE, TRUE, CURRENT_TIMESTAMP(6));
+ALTER TABLE inventory_count_type ALTER COLUMN type_id RESTART WITH 2;
+
 CREATE TABLE inventory_count (
   count_id BIGINT PRIMARY KEY AUTO_INCREMENT,
   request_id CHAR(36) NOT NULL,
+  counted_by BIGINT NOT NULL,
+  counted_at DATETIME(6) NOT NULL,
+  note VARCHAR(255) NULL,
+  type_id BIGINT NOT NULL,
+  type_name VARCHAR(20) NOT NULL,
+  input_mode VARCHAR(20) NOT NULL,
+  CONSTRAINT uq_inventory_count_request_v2 UNIQUE (request_id),
+  CONSTRAINT fk_inventory_count_staff FOREIGN KEY (counted_by) REFERENCES staff_account(staff_id),
+  CONSTRAINT fk_inventory_count_type FOREIGN KEY (type_id) REFERENCES inventory_count_type(type_id),
+  CONSTRAINT chk_inventory_count_mode CHECK (input_mode IN ('PACK_AND_LOOSE', 'PACK_ONLY')),
+  INDEX idx_inventory_count_at (counted_at)
+);
+CREATE TABLE inventory_count_line (
+  count_id BIGINT NOT NULL,
   inventory_id BIGINT NOT NULL,
   counted_qty DECIMAL(12,2) NOT NULL,
   book_qty DECIMAL(12,2) NOT NULL,
   diff_qty DECIMAL(12,2) NOT NULL,
   unit_cost DECIMAL(10,2) NULL,
-  counted_by BIGINT NOT NULL,
-  counted_at DATETIME(6) NOT NULL,
-  note VARCHAR(255) NULL,
-  FOREIGN KEY (inventory_id) REFERENCES inventory(inventory_id),
-  FOREIGN KEY (counted_by) REFERENCES staff_account(staff_id),
-  CONSTRAINT uq_inventory_count_request UNIQUE (request_id, inventory_id),
-  CHECK (counted_qty >= 0 AND book_qty >= 0),
-  CHECK (diff_qty = counted_qty - book_qty),
-  CHECK (unit_cost IS NULL OR unit_cost >= 0),
-  INDEX idx_inventory_count_time (counted_at)
+  PRIMARY KEY (count_id, inventory_id),
+  CONSTRAINT fk_count_line_count FOREIGN KEY (count_id) REFERENCES inventory_count(count_id),
+  CONSTRAINT fk_count_line_inventory FOREIGN KEY (inventory_id) REFERENCES inventory(inventory_id),
+  CONSTRAINT chk_count_line_qty CHECK (counted_qty >= 0 AND book_qty >= 0),
+  CONSTRAINT chk_count_line_diff CHECK (diff_qty = counted_qty - book_qty),
+  CONSTRAINT chk_count_line_cost CHECK (unit_cost IS NULL OR unit_cost >= 0)
 );
-ALTER TABLE inventory ADD COLUMN allow_decimal BOOLEAN NOT NULL DEFAULT TRUE;
+-- 019：用大單位＋小單位顯示
+ALTER TABLE inventory ADD COLUMN display_by_pack BOOLEAN NOT NULL DEFAULT FALSE;

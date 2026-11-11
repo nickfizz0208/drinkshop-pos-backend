@@ -110,3 +110,74 @@ SQL 僅以獨立的 POS 資料庫為目標。
 `016_inventory_count.sql` 新增盤點紀錄表 `inventory_count`：每次盤點每項原料一列，保存當時的帳面數量、實點數量、差異與單位成本。同一支檔案也在 `inventory` 加上 `allow_decimal`（預設 TRUE），控制盤點時小單位能不能填小數，例如紙杯可設成只能填整數：`UPDATE inventory SET allow_decimal = FALSE WHERE name IN ('中杯紙杯', '大杯紙杯');`。盤點只記錄，不修改 `inventory.book_qty`；`inventory.reported_qty`／`reported_by`／`reported_at` 仍會更新成最新一次。
 
 須由資料庫負責人先確認升級，不可自行對 Aiven 執行。預設未啟用：升級成功後，在本機未追蹤的 `.pos-local.properties` 加上 `pos.inventory-count.enabled=true` 並重新啟動後端，盤點頁才能送出。未啟用時送出盤點會回 503，不會寫入任何資料。
+
+## 盤點紀錄改成表頭／明細（017，尚未套用共用庫）
+
+`017_inventory_count_header.sql`：016 的 `inventory_count` 每項原料一列，同一次盤點的盤點人、時間、備註重複存。017 改成表頭 `inventory_count`（一次盤點一列）＋明細 `inventory_count_line`（每項原料一列），並把現有資料依 `request_id` 搬過去；舊表改名為 `inventory_count_016` 保留，核對筆數無誤後再手動 `DROP`（檔案最後有核對用的查詢）。
+
+同一支檔案也把 `inventory.allow_decimal` 預設改成 FALSE，並把現有原料都改成不能填小數；需要小數的原料再個別 `UPDATE inventory SET allow_decimal = TRUE WHERE ...`。
+
+**後端程式依 017 的結構寫入與查詢，017 執行前盤點頁會無法送出與查詢紀錄。** 請先執行 017，再部署這版後端。
+
+## 帳面庫存規則（2026-11 起）
+
+點餐、取消訂單、原料報廢都**不再扣或回補** `inventory.book_qty`。配方用量一定和實際有落差，帳面改以盤點為準：
+
+- 盤點送出時，帳面改成實點數量；盤點紀錄保留盤點前的帳面與差異。
+- 手動校正（`PUT /api/inventories/{id}/stock`）仍可直接改帳面。
+- 點餐不再檢查原料夠不夠；訂單明細仍記錄配方的理論用量（`deducted_inventory_json`）與原料成本（`material_cost`），報廢損耗金額照算。
+- 原料報廢只留紀錄（數量、原因、當時成本），不扣帳面。
+
+不需要改資料表。
+
+## 盤點類型（018，尚未套用共用庫）
+
+`018_inventory_count_type.sql` 新增盤點類型：盤點時先選類型，類型決定**輸入方式**（`PACK_AND_LOOSE` 箱數＋零散／`PACK_ONLY` 只填箱數）與**要盤哪些原料**（勾「全部原料」的類型會自動包含之後新增的原料）。
+
+- 預設只建「大盤」（全部原料、箱數＋零散）；小盤等其他類型由店長、總部在盤點頁新增。
+- 類型可以停用，不能刪除；停用後不能再用來盤點，舊紀錄不受影響。
+- 盤點表頭 `inventory_count` 加上 `type_id`、`type_name`、`input_mode`，保存當時的類型名稱與輸入方式；017 之前的紀錄歸為大盤。
+- 只填箱數時，有包裝單位的原料記成「箱數 × 每箱數量」，零頭不計；**同樣會覆蓋帳面**。
+
+需要先執行 016、017。**這版後端需要 018 才能盤點**，請先執行 018 再部署。
+
+## 大單位＋小單位顯示、芒果假資料（019，尚未套用共用庫）
+
+`019_inventory_display_by_pack.sql` 在 `inventory` 加上 `display_by_pack`（預設 FALSE）。設成 TRUE 的原料，畫面上的帳面、實點、差異、報廢數量改成「幾籃幾顆」顯示，資料庫照樣存基本單位數量（`per_pack` 換算後）。盤點時零散數量要少於 1 個包裝單位。
+
+`per_pack` 建議填實際的平均數量，原料成本與差異金額才算得準。同一支檔案加入假資料「芒果」：1 籃 = 30 顆、帳面 153 顆（5 籃 3 顆）、安全庫存 60 顆（2 籃）、每顆 15 元。
+
+**這版後端需要 019（`Inventory` 會讀 `display_by_pack`），請先執行 019 再部署。**
+
+## 盤點一律整數（020，尚未套用共用庫）
+
+`020_count_integer_only.sql` 拿掉 `inventory.allow_decimal`。盤點都是數包裝或數得出的個數，開封、用到一半的不算，所以實點數量一律只收整數，不再逐項設定。原料報廢、手動校正仍可填小數（報廢不改帳面，只是紀錄與損耗金額）。
+
+需要先執行 016–019。這版後端不再讀 `allow_decimal`，020 執行前後都能運作。
+
+## 配方改成材料清單、半成品（021，尚未套用共用庫）
+
+`021_recipe_tables.sql`：
+
+- **配方只記「用了哪些材料」**（`product_recipe`），不記份量；份量與做法寫在 `product.recipe_steps`（文字）。中杯、大杯共用同一份清單，紙杯不列入。拿掉 `product.recipe_json`。
+- **半成品** `prep_item`（例如茶凍、紅茶湯）與它用了哪些原料 `prep_item_ingredient`。配方的每一列是原料或半成品其中一個。
+- **加料** `topping` 可以指向原料或半成品；拿掉扣料量 `deduct_qty`。
+- 原料「茶凍」改成半成品，配方與加料的茶凍都改指向半成品；原料「茶凍」若有盤點或報廢紀錄則保留（見檔案最後的核對查詢）。
+- **點餐和配方分開**：點餐不讀配方，沒有配方的飲品照樣可以點；每杯不再計算原料成本（`order_item.material_cost` 之後為 NULL，舊訂單保留）。日結的損耗金額只加總原料報廢，飲品報廢只算杯數。
+- `recipe_cost_report.sql` 已停用。
+
+搬資料規則：舊 `recipe_json` 中、大杯都有的原料才列入（紙杯自然排除）；只有一種杯型的飲品則全部列入，可能含紙杯，請用核對查詢檢查。需要 009、016–020。**這版後端需要 021，請先執行 021 再部署。**
+
+維護範例（目前只能用 SQL）：
+
+```sql
+-- 新增半成品「紅茶湯」，由紅茶包做成
+INSERT INTO prep_item (name, steps) VALUES ('紅茶湯', '每桶 10 包茶包，煮 8 分鐘');
+INSERT INTO prep_item_ingredient (prep_id, inventory_id)
+SELECT p.prep_id, i.inventory_id FROM prep_item p, inventory i WHERE p.name = '紅茶湯' AND i.name = '紅茶包';
+-- 茶凍拿鐵：紅茶湯（半成品）＋牛奶（原料）＋茶凍（半成品）
+INSERT INTO product_recipe (product_id, prep_id, sort_order) SELECT 6, prep_id, 1 FROM prep_item WHERE name = '紅茶湯';
+INSERT INTO product_recipe (product_id, inventory_id, sort_order) SELECT 6, inventory_id, 2 FROM inventory WHERE name = '牛奶';
+INSERT INTO product_recipe (product_id, prep_id, sort_order) SELECT 6, prep_id, 3 FROM prep_item WHERE name = '茶凍';
+```
+

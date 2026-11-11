@@ -51,7 +51,7 @@ class InventoryCountDisabledTest {
     @Test
     void disabledCountIsRejectedWithoutWriting() throws Exception {
         mvc.perform(post("/api/inventory-counts").with(login("c_staff", "pass1234")).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"requestId\":\"" + UUID.randomUUID() + "\",\"lines\":[{\"inventoryId\":1,\"countedQty\":90}]}"))
+                .content("{\"requestId\":\"" + UUID.randomUUID() + "\",\"typeId\":1,\"lines\":[{\"inventoryId\":1,\"countedQty\":90}]}"))
                 .andExpect(status().isServiceUnavailable());
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM inventory_count", Integer.class));
         mvc.perform(get("/api/inventory-counts").with(login("c_staff", "pass1234")))

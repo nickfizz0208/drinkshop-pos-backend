@@ -88,27 +88,39 @@ class RecipeApiTest {
     }
 
     @Test
-    void detailShowsUnitsAndWatermark() throws Exception {
+    void detailShowsMaterialsAndWatermark() throws Exception {
+        // 配方只有材料清單（中大杯共用、不含紙杯），份量寫在 steps
         mvc.perform(get("/api/recipes/4").with(login("r_staff",PASSWORD)))
             .andExpect(status().isOk())
             .andExpect(header().string("Cache-Control","no-store"))
             .andExpect(jsonPath("$.recipeStatus").value("OK"))
-            .andExpect(jsonPath("$.sizes[0].label").value("中杯"))
-            .andExpect(jsonPath("$.sizes[0].lines[0].item").value("中杯紙杯"))
-            .andExpect(jsonPath("$.sizes[0].lines[0].unit").value("個"))
-            .andExpect(jsonPath("$.sizes[0].lines[2].unit").value("份"))
+            .andExpect(jsonPath("$.materials.length()").value(3))
+            .andExpect(jsonPath("$.materials[0].kind").value("INVENTORY"))
+            .andExpect(jsonPath("$.materials[0].name").value("紅茶包"))
+            .andExpect(jsonPath("$.materials[2].name").value("珍珠"))
+            .andExpect(jsonPath("$.materials[0].qty").doesNotExist())
+            .andExpect(jsonPath("$.sizes").doesNotExist())
+            .andExpect(jsonPath("$.steps").exists())
             .andExpect(jsonPath("$.watermark",startsWith("店員小華 r_staff ")));
     }
 
-    // 合併時發現的問題：用參數寫進 JSON 欄位的文字，會被多包一層引號存成字串，不能被判成格式錯誤
+    // 半成品：配方裡的半成品附上它由哪些原料做成；沒有材料清單的飲品標示 MISSING
     @Test
-    void wrappedRecipeJsonStillReadable() throws Exception {
-        jdbc.update("UPDATE product SET recipe_json=? WHERE product_id=1",
-            "{\"M\":[{\"inventoryId\":1,\"qty\":1}]}");
-        assertTrue(jdbc.queryForObject("SELECT recipe_json FROM product WHERE product_id=1",String.class).startsWith("\""));
+    void prepItemsListTheirIngredientsAndMissingRecipeIsMarked() throws Exception {
+        jdbc.update("INSERT INTO product_recipe (product_id,prep_id,sort_order) VALUES (1,1,2)");
         mvc.perform(get("/api/recipes/1").with(login("r_staff",PASSWORD)))
-            .andExpect(jsonPath("$.recipeStatus").value("OK"))
-            .andExpect(jsonPath("$.sizes[0].lines[0].item").value("中杯紙杯"));
+            .andExpect(jsonPath("$.materials[1].kind").value("PREP"))
+            .andExpect(jsonPath("$.materials[1].name").value("茶凍"))
+            .andExpect(jsonPath("$.materials[1].madeFrom[0]").value("紅茶包"))
+            .andExpect(jsonPath("$.materials[0].madeFrom.length()").value(0));
+        jdbc.update("DELETE FROM product_recipe WHERE product_id=2");
+        mvc.perform(get("/api/recipes/2").with(login("r_staff",PASSWORD)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.recipeStatus").value("MISSING"))
+            .andExpect(jsonPath("$.materials.length()").value(0));
+        mvc.perform(get("/api/recipes").with(login("r_staff",PASSWORD)))
+            .andExpect(jsonPath("$[?(@.productId == 2)].recipeStatus").value("MISSING"))
+            .andExpect(jsonPath("$[?(@.productId == 1)].recipeStatus").value("OK"));
     }
 
     @Test

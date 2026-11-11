@@ -135,39 +135,4 @@ public class InventoryService {
         topping.setOnSale(onSale != null && onSale);
         return toppingRepository.save(topping);
     }
-
-    /**
-     * 檢驗加料項目是否在售且對應原料庫存是否充足
-     */
-    @Transactional(readOnly = true)
-    public void validateToppingAvailable(Long toppingId, Integer cups) {
-        Topping topping = getToppingById(toppingId);
-        if (Boolean.FALSE.equals(topping.getOnSale())) {
-            throw new ToppingUnavailableException("加料項目 [" + topping.getName() + "] 目前已停售");
-        }
-
-        // 計算所需的原料總量 = 單份扣料量 * 杯數
-        int lineQty = (cups != null && cups > 0) ? cups : 1;
-        BigDecimal requiredQty = topping.getDeductQty().multiply(BigDecimal.valueOf(lineQty));
-
-        // 檢查對應之原料現有庫存
-        Inventory inventory = getInventoryById(topping.getInventoryId());
-        if (inventory.getBookQty().compareTo(requiredQty) < 0) {
-            throw ApiException.conflict("加料 [" + topping.getName() + "] 所需原料 ["
-                    + inventory.getName() + "] 庫存不足，無法加料！現有: "
-                    + inventory.getBookQty() + "，需要: " + requiredQty);
-        }
-    }
-
-    /**
-     * 扣除加料所消耗的原料庫存（連動 deductStock）
-     */
-    public void deductToppingInventory(Long toppingId, Integer cups) {
-        Topping topping = getToppingById(toppingId);
-        int lineQty = (cups != null && cups > 0) ? cups : 1;
-        BigDecimal totalDeduct = topping.getDeductQty().multiply(BigDecimal.valueOf(lineQty));
-
-        deductStock(topping.getInventoryId(), totalDeduct);
-    }
 }
-

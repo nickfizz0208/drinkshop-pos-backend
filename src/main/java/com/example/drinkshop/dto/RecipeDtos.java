@@ -7,19 +7,20 @@ import java.util.List;
 public final class RecipeDtos {
     private RecipeDtos() {}
 
-    // 配方狀態：OK＝有配方；MISSING＝尚未建立配方；INVALID＝資料格式有誤（請負責的人修資料）
-    public enum RecipeStatus { OK, MISSING, INVALID }
+    // 配方狀態：OK＝有材料清單；MISSING＝尚未建立配方（沒有配方也能點餐，只是這裡看不到材料）
+    public enum RecipeStatus { OK, MISSING }
 
     // 列表：一列一個飲品，不含原料用量
     public record RecipeSummary(long productId, String name, String category, RecipeStatus recipeStatus) {}
 
-    // 一行原料：紅茶包 1 包。unit 是 null 代表資料庫沒有記錄單位（不猜）
-    public record RecipeLine(long inventoryId, String item, BigDecimal qty, String unit) {}
+    // 材料種類：原料（盤點、進貨的東西，例如牛奶）或半成品（店內做的，例如茶凍、紅茶湯）
+    public enum MaterialKind { INVENTORY, PREP }
 
-    // 一個杯型的配方：code 是資料裡的杯型代碼（M、L），label 是中文名稱
-    public record RecipeSize(String code, String label, List<RecipeLine> lines) {}
+    // 一項材料：只記「用了什麼」，份量寫在製作步驟（文字）。半成品附上 madeFrom（由哪些原料做成），原料為空清單
+    // 中杯、大杯共用同一份材料清單（021）
+    public record RecipeMaterial(MaterialKind kind, long id, String name, List<String> madeFrom) {}
 
     // 詳情：steps 是 null 代表沒有記錄製作步驟；standardRecipe 固定 true，提醒這是標準配方
     public record RecipeDetail(long productId, String name, String category, RecipeStatus recipeStatus,
-                               boolean standardRecipe, List<RecipeSize> sizes, String steps, String watermark) {}
+                               boolean standardRecipe, List<RecipeMaterial> materials, String steps, String watermark) {}
 }

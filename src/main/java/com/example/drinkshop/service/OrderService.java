@@ -28,9 +28,8 @@ public class OrderService {
     public OrderService(PosRepository repo,RuleService rules,Clock clock) {
         this.repo=repo; this.rules=rules; this.clock=clock;
     }
-    // 計價後的暫存明細：price 是「含加料的單杯售價」，deducted 是這筆明細全部杯數的用料。
-    private record Priced(Item item,Map<String,Object> product,List<Map<String,Object>> toppings,
-                          BigDecimal price,Map<Long,BigDecimal> deducted) {}
+    // 計價後的暫存明細：price 是「含加料的單杯售價」。
+    private record Priced(Item item,Map<String,Object> product,List<Map<String,Object>> toppings,BigDecimal price) {}
 
     // 操作人從已驗證的登入帳號取得，不能讓前端自行指定員工 ID。
     public Staff actor(String username) {
@@ -62,7 +61,6 @@ public class OrderService {
         if (request.payment()!=Payment.CASH && request.receivedCash()!=null) throw ApiException.bad("非現金付款不需要實收現金");
 
         var priced=new ArrayList<Priced>();
-        var allDeductions=new TreeMap<Long,BigDecimal>();
         BigDecimal total=Money.ZERO;
         // 一張訂單有多筆 Item；每筆可有多杯，但共用杯型、冰甜、加料與備註。
         for (Item item:request.items()) {
@@ -70,28 +68,21 @@ public class OrderService {
             rules.validate(item,product);
             BigDecimal price=Money.from(product,"base_price").add(item.size()==Size.L?Money.from(product,"large_extra"):Money.ZERO);
             var toppings=new ArrayList<Map<String,Object>>();
-            var deduction=recipe(product,item);
             for (long id:item.toppingIds()) {
                 var topping=repo.topping(id);
                 if (!flag(topping,"on_sale")) throw ApiException.conflict("加料已下架");
                 price=price.add(Money.from(topping,"price"));
-                add(deduction,number(topping,"inventory_id"),new BigDecimal(topping.get("deduct_qty").toString()).multiply(BigDecimal.valueOf(item.qty())));
                 toppings.add(topping);
             }
             price=Money.checked(price);
             total=Money.checked(total.add(price.multiply(BigDecimal.valueOf(item.qty()))));
-            deduction.forEach((id,qty)->add(allDeductions,id,qty));
-            priced.add(new Priced(item,product,toppings,price,deduction));
+            priced.add(new Priced(item,product,toppings,price));
         }
         if (request.receivedCash()!=null) Money.checked(request.receivedCash());
         if (request.payment()==Payment.CASH && (request.receivedCash()==null || request.receivedCash().compareTo(total)<0))
             throw ApiException.bad("實收現金不足");
-        // TreeMap 依原料 ID 固定順序上鎖；FOR UPDATE 讓其他交易等待，避免同時扣到負庫存。
-        for(var deduction:allDeductions.entrySet()) {
-            var stock=repo.one("SELECT book_qty FROM inventory WHERE inventory_id=? FOR UPDATE",deduction.getKey());
-            if(new BigDecimal(stock.get("book_qty").toString()).compareTo(deduction.getValue())<0)
-                throw ApiException.conflict("原料庫存不足，請盤點或調整點餐內容");
-        }
+        // 點餐和配方分開：不讀配方、不扣帳面庫存（帳面以盤點為準），也不檢查庫存夠不夠；沒有配方的飲品照樣可以點。
+        // 配方只記「用了哪些材料」，沒有份量，所以每杯不計算原料成本（deducted_inventory_json、material_cost 留空，舊訂單保留原值）。
         LocalDateTime now=LocalDateTime.now(clock);
         long orderId=repo.insert("order_id", """
             INSERT INTO pos_order(order_no,business_date,member_phone,source,payment,total,received_cash,change_cash,
@@ -101,18 +92,17 @@ public class OrderService {
             request.receivedCash(),request.payment()==Payment.CASH?request.receivedCash().subtract(total):null,
             request.distance(),request.duration(),request.addressNote(),request.note(),staff.id(),now,hash,
             request.unpaid()?"UNPAID":"PAID",request.unpaid()?Money.ZERO:total);
-        // 存下當時的品名、售價、用料與成本；以後改菜單或配方，不回頭改歷史訂單。
+        // 存下當時的品名與售價；以後改菜單，不回頭改歷史訂單。
         for(Priced line:priced) {
             Item item=line.item();
             long itemId=repo.insert("item_id", """
-                INSERT INTO order_item(order_id,product_id,product_name,size,temperature,sugar,ice,qty,unit_price,status,note,deducted_inventory_json,material_cost)
-                VALUES (?,?,?,?,?,?,?,?,?,'PENDING',?,?,?)
+                INSERT INTO order_item(order_id,product_id,product_name,size,temperature,sugar,ice,qty,unit_price,status,note)
+                VALUES (?,?,?,?,?,?,?,?,?,'PENDING',?)
                 """,orderId,item.productId(),line.product().get("name"),item.size().name(),item.temperature().name(),
-                item.sugar().name(),item.ice().name(),item.qty(),line.price(),item.note(),rules.write(line.deducted()),materialCost(line.deducted()));
+                item.sugar().name(),item.ice().name(),item.qty(),line.price(),item.note());
             for(var topping:line.toppings()) repo.update("INSERT INTO order_item_topping(item_id,topping_id,topping_name,price_at_order) VALUES (?,?,?,?)",
                 itemId,topping.get("topping_id"),topping.get("name"),topping.get("price"));
         }
-        allDeductions.forEach((id,qty)->repo.update("UPDATE inventory SET book_qty=book_qty-? WHERE inventory_id=?",qty,id));
         return repo.detail(orderId);
     }
 
@@ -137,18 +127,6 @@ public class OrderService {
         if(request.unpaid()) fields.put("unpaid",true);
         return hash(rules.write(fields));
     }
-    // 成本 = 各原料單位成本 × 本明細用量（含杯材、加料）；缺成本回傳 null，不能誤算成零。
-    // 這是原料成本，不包含租金、人事，也不是售價或退款金額。
-    private BigDecimal materialCost(Map<Long,BigDecimal> quantities) {
-        BigDecimal cost=Money.ZERO;
-        for(var entry:quantities.entrySet()) {
-            var stock=repo.one("SELECT unit_cost FROM inventory WHERE inventory_id=?",entry.getKey());
-            if(stock.get("unit_cost")==null) return null;
-            cost=cost.add(Money.from(stock,"unit_cost").multiply(entry.getValue()));
-        }
-        return Money.checked(cost.setScale(2,java.math.RoundingMode.HALF_UP));
-    }
-
     @Transactional(isolation=Isolation.READ_COMMITTED)
     // 替「先接單、稍後付款」的舊訂單補收款，只記錄店員確認的結果，沒有呼叫金流平台。
     public Map<String,Object> collect(long id,Collect request,String username) {
@@ -168,24 +146,6 @@ public class OrderService {
         repo.update("UPDATE pos_order SET payment_status='PAID',payment=?,paid_amount=?,received_cash=?,change_cash=?,updated_at=? WHERE order_id=?",
             request.payment().name(),amount,cash,cash==null?null:cash.subtract(amount),LocalDateTime.now(clock),id);
         return repo.detail(id);
-    }
-    // 配方依 M／L 取單杯用量，再乘 qty；加料用量在 create 中另外加進來。
-    private Map<Long,BigDecimal> recipe(Map<String,Object> product,Item item) {
-        var recipe=rules.parse(product.get("recipe_json")).path(item.size().name());
-        if (!recipe.isArray() || recipe.isEmpty()) throw ApiException.conflict("此杯型缺少扣料配方");
-        var result=new TreeMap<Long,BigDecimal>();
-        for(var ingredient:recipe) {
-            if (!ingredient.path("inventoryId").canConvertToLong() || !ingredient.path("qty").isNumber())
-                throw ApiException.conflict("配方缺少有效原料與數量");
-            long id=ingredient.get("inventoryId").asLong();
-            BigDecimal qty=ingredient.get("qty").decimalValue();
-            if (id<=0 || qty.signum()<=0 || qty.stripTrailingZeros().scale()>2) throw ApiException.conflict("配方數量必須大於零且最多兩位小數");
-            add(result,id,qty.multiply(BigDecimal.valueOf(item.qty())));
-        }
-        return result;
-    }
-    private void add(Map<Long,BigDecimal> quantities,long id,BigDecimal qty) {
-        quantities.merge(id,qty,BigDecimal::add);
     }
     // 日結後禁止改單；鎖定順序統一為「開班 → 訂單 → 明細／庫存」。
     private void lockShift(LocalDate date) {
@@ -242,7 +202,7 @@ public class OrderService {
 
     @Transactional(isolation=Isolation.READ_COMMITTED)
     // itemId 為 null 表示整單；有值則取消該明細的全部杯數，目前不拆同筆中的單杯。
-    // 尚未製作：回補建單時扣掉的原料；已開始製作：轉 WASTED，原料不回補。
+    // 尚未製作：轉 CANCELLED；已開始製作：轉 WASTED。點餐不扣帳面庫存，所以取消也不回補。
     public Map<String,Object> cancel(long orderId,Long itemId,Cancel request,String username) {
         Staff staff=actor(username); var order=lockOrder(orderId);
         var items=repo.rows("SELECT * FROM order_item WHERE order_id=? ORDER BY item_id FOR UPDATE",orderId);
@@ -261,24 +221,10 @@ public class OrderService {
         boolean needsManager=active.stream().anyMatch(i->!"PENDING".equals(i.get("status")));
         // needsManager 是舊變數名；目前已取消 PIN 審核，approved_by 記錄實際操作員工。
         Long approved=needsManager?staff.id():null;
-        var restores=new TreeMap<Long,BigDecimal>();
         for(var item:active) {
             boolean pending="PENDING".equals(item.get("status"));
-            if(pending) {
-                if(item.get("deducted_inventory_json")==null) throw ApiException.conflict("舊明細缺少扣料快照，請先核對原料再取消");
-                // 回補用「當時扣料快照」，不能用現在的配方重算，否則配方改過就會補錯。
-                var fields=rules.parse(item.get("deducted_inventory_json")).fields();
-                while(fields.hasNext()) {
-                    var field=fields.next();
-                    add(restores,Long.parseLong(field.getKey()),field.getValue().decimalValue());
-                }
-            }
             repo.update("UPDATE order_item SET status=?,reason=?,approved_by=?,updated_at=? WHERE item_id=?",
                 pending?"CANCELLED":"WASTED",request.reason().trim(),pending?null:approved,LocalDateTime.now(clock),item.get("item_id"));
-        }
-        for(var restore:restores.entrySet()) {
-            repo.one("SELECT inventory_id FROM inventory WHERE inventory_id=? FOR UPDATE",restore.getKey());
-            repo.update("UPDATE inventory SET book_qty=book_qty+? WHERE inventory_id=?",restore.getValue(),restore.getKey());
         }
         repo.update("UPDATE pos_order SET refunded_amount=refunded_amount+?,change_cash=CASE WHEN payment='CASH' THEN change_cash+? ELSE NULL END WHERE order_id=?",refund,refund,orderId);
         // 將本次退款依明細順序分配，方便追查；只記錄已由店員人工完成的退款。

@@ -16,7 +16,7 @@ import java.util.List;
 
 /**
  * 原料盤點 API（只限個人帳號，POS 共用帳號不行；SecurityConfig 也會擋）。
- * 盤點只記錄實點數量與差異，不修改帳面庫存。
+ * 盤點會記錄實點數量與差異，並把帳面庫存改成實點數量（點餐、報廢都不扣帳面）。
  */
 @RestController
 @RequestMapping("/api/inventory-counts")
@@ -33,6 +33,25 @@ public class InventoryCountController {
     @ResponseStatus(HttpStatus.CREATED)
     List<Row> submit(@Valid @RequestBody Submit request, Principal principal) {
         return counts.submit(request, currentStaffId(principal));
+    }
+
+    /** GET /api/inventory-counts/types?includeInactive=true：盤點類型（不填只列啟用中的）。 */
+    @GetMapping("/types")
+    List<CountType> types(@RequestParam(name = "includeInactive", defaultValue = "false") boolean includeInactive) {
+        return counts.types(includeInactive);
+    }
+
+    /** POST /api/inventory-counts/types：新增盤點類型（只限店長、總部；SecurityConfig 擋）。 */
+    @PostMapping("/types")
+    @ResponseStatus(HttpStatus.CREATED)
+    CountType createType(@Valid @RequestBody SaveType request, Principal principal) {
+        return counts.createType(request, currentStaffId(principal));
+    }
+
+    /** PUT /api/inventory-counts/types/{typeId}：修改盤點類型（active = false 即停用；只限店長、總部）。 */
+    @PutMapping("/types/{typeId}")
+    CountType updateType(@PathVariable("typeId") long typeId, @Valid @RequestBody SaveType request, Principal principal) {
+        return counts.updateType(typeId, request, currentStaffId(principal));
     }
 
     /** GET /api/inventory-counts/items：盤點用的原料清單（含帳面數量、是否允許小數）。 */

@@ -299,7 +299,9 @@ public class NewModulesIntegrationTest {
                         .with(login(TEST_USER, TEST_PASS)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalWastedCount").exists())
-                .andExpect(jsonPath("$.costComplete").value(false))
+                // 損耗金額只算原料報廢（飲品不計成本，021）：中杯紙杯 10 個 × 0.80 = 8
+                .andExpect(jsonPath("$.costComplete").value(true))
+                .andExpect(jsonPath("$.totalWastageCost").value(8.0))
                 .andExpect(jsonPath("$.rawMaterialWastages[0].reason").value("過期變質"));
     }
 }

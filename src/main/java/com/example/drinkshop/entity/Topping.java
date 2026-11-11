@@ -24,13 +24,13 @@ public class Topping {
     @Column(name = "price", precision = 10, scale = 2, nullable = false)
     private BigDecimal price;
 
-    // 所關聯的原料庫存編號
-    @Column(name = "inventory_id", nullable = false)
+    // 加料對應的原料（例如珍珠）；和 prepId 剛好填一個（021）
+    @Column(name = "inventory_id")
     private Long inventoryId;
 
-    // 每份加料需扣除之原料基本單位數量（例如 1 份珍珠扣 50g）
-    @Column(name = "deduct_qty", precision = 12, scale = 2, nullable = false)
-    private BigDecimal deductQty;
+    // 加料對應的半成品（例如茶凍）；和 inventoryId 剛好填一個。加料不再記扣料量（021）
+    @Column(name = "prep_id")
+    private Long prepId;
 
     // 是否在售開放加料（true: 開放中, false: 停售/缺料隱藏）
     @Column(name = "on_sale", nullable = false)
@@ -39,12 +39,12 @@ public class Topping {
     public Topping() {
     }
 
-    public Topping(Long toppingId, String name, BigDecimal price, Long inventoryId, BigDecimal deductQty, Boolean onSale) {
+    public Topping(Long toppingId, String name, BigDecimal price, Long inventoryId, Long prepId, Boolean onSale) {
         this.toppingId = toppingId;
         this.name = name;
         this.price = price;
         this.inventoryId = inventoryId;
-        this.deductQty = deductQty;
+        this.prepId = prepId;
         this.onSale = onSale;
     }
 
@@ -80,12 +80,12 @@ public class Topping {
         this.inventoryId = inventoryId;
     }
 
-    public BigDecimal getDeductQty() {
-        return deductQty;
+    public Long getPrepId() {
+        return prepId;
     }
 
-    public void setDeductQty(BigDecimal deductQty) {
-        this.deductQty = deductQty;
+    public void setPrepId(Long prepId) {
+        this.prepId = prepId;
     }
 
     public Boolean getOnSale() {

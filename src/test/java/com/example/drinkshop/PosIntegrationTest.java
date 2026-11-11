@@ -148,7 +148,11 @@ class PosIntegrationTest {
         assertEquals(120,result.get("total").asInt());
         assertEquals(35,result.get("items").get(0).get("unit_price").asInt());
         assertEquals(2,result.get("items").size());
-        assertEquals(cups-3,stock(1)); assertEquals(tea-3,stock(3)); assertEquals(pearl-2,stock(6));
+        // 點餐和配方分開：不扣帳面庫存、不記用量、不算原料成本（021）
+        assertEquals(cups,stock(1)); assertEquals(tea,stock(3)); assertEquals(pearl,stock(6));
+        assertNull(jdbc.queryForObject("SELECT deducted_inventory_json FROM order_item WHERE item_id=?",String.class,
+            result.get("items").get(0).get("item_id").asLong()));
+        assertTrue(result.get("items").get(0).get("material_cost").isNull());
         assertFalse(result.toString().contains("request_hash"));
     }
     @Test void repeatedRequestDoesNotDeductAgain() throws Exception {
@@ -186,11 +190,12 @@ class PosIntegrationTest {
             .content(json.writeValueAsBytes(request(item(1,1,List.of()))))).andExpect(status().isConflict());
         assertEquals(4,countOrders());
     }
-    @Test void stockShortageRollsBackWholeOrder() throws Exception {
+    @Test void zeroBookStockDoesNotBlockOrder() throws Exception {
+        // 帳面不準（以盤點為準），所以帳面是 0 也照樣可以點，也不會變負數
         double before=stock(1); jdbc.update("UPDATE inventory SET book_qty=0 WHERE inventory_id=6");
         mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
-            .content(json.writeValueAsBytes(request(item(1,1,List.of()),item(3,1,List.of(1L)))))).andExpect(status().isConflict());
-        assertEquals(before,stock(1)); assertEquals(4,countOrders());
+            .content(json.writeValueAsBytes(request(item(1,1,List.of()),item(3,1,List.of(1L)))))).andExpect(status().isOk());
+        assertEquals(before,stock(1)); assertEquals(0,stock(6)); assertEquals(5,countOrders());
     }
     @Test void lateInsertFailureRollsBackMainAndEarlierDetail() throws Exception {
         double before=stock(1);
@@ -204,8 +209,7 @@ class PosIntegrationTest {
         double before=stock(1);
         var result=create(request(item(1,2,List.of(1L))));
         long id=result.get("order_id").asLong(),line=result.get("items").get(0).get("item_id").asLong();
-        jdbc.update("UPDATE product SET recipe_json='{}' WHERE product_id=1");
-        jdbc.update("UPDATE topping SET deduct_qty=10 WHERE topping_id=1");
+        jdbc.update("DELETE FROM product_recipe WHERE product_id=1");   // 配方改掉也不影響取消
         cancel(id,line,null,null).andExpect(status().isOk()).andExpect(jsonPath("$.total").value(0));
         assertEquals(before,stock(1));
         double pearl=stock(6);
@@ -230,7 +234,7 @@ class PosIntegrationTest {
         jdbc.update("UPDATE staff_account SET active=FALSE WHERE staff_id=10");
         cancel(id,line,"test_manager","654321").andExpect(status().isUnauthorized());
     }
-    @Test void wholeOrderCancellationWithoutPinRestoresOnlyPendingLines() throws Exception {
+    @Test void wholeOrderCancellationWithoutPinCancelsPendingAndWastesMadeLines() throws Exception {
         var result=create(request(item(1,1,List.of()),item(3,1,List.of())));
         long id=result.get("order_id").asLong(),line=result.get("items").get(1).get("item_id").asLong();
         state(id,line,ItemStatus.MAKING);
@@ -238,7 +242,7 @@ class PosIntegrationTest {
         mvc.perform(post("/api/orders/"+id+"/cancel").with(login("test_staff",PASSWORD)).contentType("application/json")
             .content("{\"reason\":\"取消\",\"refundAmount\":0}")).andExpect(status().isOk())
             .andExpect(jsonPath("$.items[1].status").value("WASTED")).andExpect(jsonPath("$.items[1].approved_by").value(10));
-        assertEquals(remaining+1,stock(1));
+        assertEquals(remaining,stock(1));   // 取消不回補（點餐本來就沒扣）
         assertEquals("CANCELLED",jdbc.queryForObject("SELECT status FROM order_item WHERE item_id=?",String.class,result.get("items").get(0).get("item_id").asLong()));
     }
     @Test void statesCannotSkipForwardOrCancelPickedUp() throws Exception {
@@ -266,7 +270,7 @@ class PosIntegrationTest {
         mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
             .content(json.writeValueAsBytes(tree))).andExpect(status().isBadRequest());
     }
-    @Test void concurrentCheckoutCannotOversell() throws Exception {
+    @Test void concurrentCheckoutsBothSucceedWithoutTouchingStock() throws Exception {
         jdbc.update("UPDATE inventory SET book_qty=1 WHERE inventory_id=1");
         try(var pool=Executors.newFixedThreadPool(2)) {
             var ready=new CountDownLatch(2); var start=new CountDownLatch(1);
@@ -275,7 +279,7 @@ class PosIntegrationTest {
             } catch(ApiException ex) { return ex.status.value(); }};
             var a=pool.submit(work);var b=pool.submit(work);assertTrue(ready.await(5,TimeUnit.SECONDS));start.countDown();
             var results=new ArrayList<>(List.of(a.get(15,TimeUnit.SECONDS),b.get(15,TimeUnit.SECONDS)));Collections.sort(results);
-            assertEquals(List.of(200,409),results);assertEquals(0,stock(1));assertEquals(5,countOrders());
+            assertEquals(List.of(200,200),results);assertEquals(1,stock(1));assertEquals(6,countOrders());
         }
     }
     @Test void concurrentIdenticalRetriesCreateOneOrder() throws Exception {
@@ -284,7 +288,7 @@ class PosIntegrationTest {
             var a=pool.submit(()->orders.create(request,"test_staff"));
             var b=pool.submit(()->orders.create(request,"test_staff"));
             assertEquals(a.get(15,TimeUnit.SECONDS).get("order_id"),b.get(15,TimeUnit.SECONDS).get("order_id"));
-            assertEquals(5,countOrders());assertEquals(97,stock(1));
+            assertEquals(5,countOrders());assertEquals(98,stock(1));
         }
     }
     @Test void photosValidateImageContentAndOnlyAllowOneOnWastedLine() throws Exception {
@@ -380,14 +384,14 @@ class PosIntegrationTest {
             .andExpect(status().is(expected)).andReturn().getResponse().getContentAsString();
         return json.readTree(body);
     }
-    @Test void unpaidPendingCancellationRestoresStockAndNeverRefunds() throws Exception {
+    @Test void unpaidPendingCancellationNeverRefundsOrTouchesStock() throws Exception {
         var request=unpaid(item(1,2,List.of(1L)));
         var order=create(request); long id=order.get("order_id").asLong();
         assertEquals("UNPAID",order.get("payment_status").asText());
         assertTrue(order.get("payment").isNull()); assertEquals(0,order.get("paid_amount").asInt());
-        assertEquals(new BigDecimal("13.6"),order.get("items").get(0).get("material_cost").decimalValue().stripTrailingZeros());
+        assertTrue(order.get("items").get(0).get("material_cost").isNull());   // 飲品不計原料成本（021）
         explicitCancel(order,BigDecimal.ONE,null,null,400);
-        assertEquals(96,stock(1));
+        assertEquals(98,stock(1));
         var cancelled=explicitCancel(order,BigDecimal.ZERO,null,null,200);
         assertEquals(0,cancelled.get("refunded_amount").asInt()); assertEquals(98,stock(1));
         explicitCancel(order,BigDecimal.ZERO,null,null,200); assertEquals(98,stock(1));
@@ -395,7 +399,7 @@ class PosIntegrationTest {
         mvc.perform(post("/api/orders/"+id+"/collect").with(login("test_staff",PASSWORD))
             .contentType("application/json").content("{\"payment\":\"LINE_PAY\"}" )).andExpect(status().isConflict());
     }
-    @Test void unpaidMadeWastageKeepsCostSnapshotWithoutRefundOrStockRestore() throws Exception {
+    @Test void unpaidMadeWastageHasNoCostRefundOrStockChange() throws Exception {
         var order=create(unpaid(item(4,2,List.of(2L))));
         long id=order.get("order_id").asLong(),line=order.get("items").get(0).get("item_id").asLong();
         state(id,line,ItemStatus.MAKING).andExpect(status().isOk());
@@ -403,9 +407,9 @@ class PosIntegrationTest {
         var cancelled=explicitCancel(order,BigDecimal.ZERO,null,null,200);
         var item=cancelled.get("items").get(0);
         assertEquals("WASTED",item.get("status").asText());
-        assertEquals(0,new BigDecimal("30.60").compareTo(item.get("material_cost").decimalValue()));
+        assertTrue(item.get("material_cost").isNull());
         assertEquals(0,cancelled.get("paid_amount").asInt()); assertEquals(0,cancelled.get("refunded_amount").asInt());
-        assertEquals(96,stock(1));
+        assertEquals(98,stock(1));
     }
     @Test void paidCancellationCanKeepReceiptsOrRecordPartialRefundExactlyOnce() throws Exception {
         var order=create(new Create(UUID.randomUUID(),Source.TAKE_OUT,Payment.CASH,null,new BigDecimal("100"),null,null,null,null,List.of(item(1,2,List.of()))));
@@ -434,11 +438,13 @@ class PosIntegrationTest {
             .andExpect(status().isOk()).andExpect(jsonPath("$.payment_status").value("PAID"))
             .andExpect(jsonPath("$.paid_amount").value(25)).andExpect(jsonPath("$.change_cash").value(75));
         mvc.perform(post(path).with(login("test_staff",PASSWORD)).contentType("application/json").content("{\"payment\":\"LINE_PAY\"}")).andExpect(status().isConflict());
-        state(id,line,ItemStatus.PICKED_UP).andExpect(status().isOk()); assertEquals(97,stock(1));
+        state(id,line,ItemStatus.PICKED_UP).andExpect(status().isOk()); assertEquals(98,stock(1));
     }
-    @Test void unknownIngredientCostIsNeverReportedAsZero() throws Exception {
-        jdbc.update("UPDATE inventory SET unit_cost=NULL WHERE inventory_id=6");
-        var order=create(unpaid(item(1,1,List.of(1L))));
+    @Test void drinkWithoutRecipeCanStillBeOrdered() throws Exception {
+        // 點餐和配方分開：沒有配方（材料清單）的飲品照樣可以點，加半成品的加料（茶凍）也可以
+        jdbc.update("DELETE FROM product_recipe WHERE product_id=1");
+        var order=create(unpaid(item(1,1,List.of(1L,2L))));
+        assertEquals(45,order.get("total").asInt());
         assertTrue(order.get("items").get(0).get("material_cost").isNull());
     }
     @Test void unpaidCannotClaimPaymentAndPaidOrdersRequireMethod() throws Exception {
