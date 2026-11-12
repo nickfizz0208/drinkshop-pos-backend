@@ -28,6 +28,7 @@ Workbench 預設開啟 Safe Updates，會擋下 006 的 UPDATE（Error 1175）�
 10. `010-012_checklist_shift_schedule_ALL.sql`：檢查表、打卡與排班。也可以依序執行 010、011、012 三個個別檔案。
 11. 依檔名順序執行 013–020，涵蓋排班發佈、POS 職級、排班標籤及盤點。
 12. 執行 [`026_recipe_upgrade_workbench.sql`](026_recipe_upgrade_workbench.sql)。這支合併檔取代分開執行的 021 和 022。既有庫先確認 020 以前的版本，再執行合併檔。
+13. 有載入 002 示範菜單的資料庫可執行 [`027_demo_recipe_portions.sql`](027_demo_recipe_portions.sql)，補齊五款示範飲品的八筆空白材料份數。
 
 014 加入 POS 職級。櫃台登入需要有效的 POS 帳號。啟用 demo 初始化時會建立缺少的 `staff`、`manager`、`pos`，使用 `pos` 在畫面上開班。
 
@@ -196,4 +197,6 @@ INSERT INTO product_recipe (product_id, prep_id, sort_order) SELECT 6, prep_id, 
 - 出錯時停在第一個錯誤，先核對實際結構。MySQL 的 DDL 會逐語句提交。若錯誤後留下 `migrate_recipe_021_022`，完成核對後可清除該暫用程序。
 
 份數以每項材料的獨立欄位儲存，舊配方份數留空。店長與總部帳號可在配方頁補登份數並修改製作步驟。若用 SQL 修改同一份配方，請在交易中先鎖定對應的 `product` 資料列，以和網站編輯使用同一把鎖。
+
+027 依 `002_demo_data.sql`，將五款示範飲品的八筆材料空白份數填為 1。已填寫的份數與其他配方材料保留原值。
 
