@@ -80,6 +80,7 @@ CREATE TABLE product_recipe (
   inventory_id BIGINT NULL,
   prep_id BIGINT NULL,
   sort_order INT NOT NULL DEFAULT 0,
+  portions DECIMAL(8,2) NULL CHECK (portions > 0),
   CONSTRAINT fk_product_recipe_product FOREIGN KEY (product_id) REFERENCES product(product_id),
   CONSTRAINT fk_product_recipe_inventory FOREIGN KEY (inventory_id) REFERENCES inventory(inventory_id),
   CONSTRAINT fk_product_recipe_prep FOREIGN KEY (prep_id) REFERENCES prep_item(prep_id),

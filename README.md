@@ -3,7 +3,7 @@
 支援 POS 點餐、計價、收款、取消退款、會員與外送、開關班、原料報廢、盤點、打卡、檢查表、排班及配方查詢 API。
 
 技術：Java 21、Spring Boot 3.5.16、Gradle 8.14.3、Spring JDBC、MySQL（團隊共用資料庫架在 Aiven）。
-Angular 前端提供櫃台與個人帳號工作區。配方查詢目前由後端提供 API。
+Angular 前端提供櫃台與個人帳號工作區。櫃台可直接從訂單品項查看配方。
 
 ## 連線設定（第一次 clone 必做）
 
@@ -29,7 +29,7 @@ pos.demo.password=<見共用文件>
 - 共用文件請設為僅限組員檢視。
 - 資料庫名稱是 `drinkshop_pos`，不是 Aiven 預設的 `defaultdb`。
 - `pos.demo.enabled=true` 會建立缺少的 `staff`、`manager`、`pos` 測試帳號。用 `pos` 登入後，在畫面上選擇開班人員。
-- 啟動整合版前，請確認資料庫結構已升級至 021。共用庫的升級由資料庫負責人執行。見 [database/README.md](database/README.md)。
+- 啟動整合版前，請確認資料庫結構已升級至 022。共用庫的升級由資料庫負責人執行。見 [database/README.md](database/README.md)。
 - 未建立 `.pos-local.properties` 時，程式會改連本機 `localhost:3306/drinkshop_pos`。
 
 ## 啟動與測試
@@ -69,7 +69,7 @@ Swagger UI 不設定跨重新整理保存帳密，重新整理後可再次使用
 - [虛構原料成本與每杯成本範例](docs/DEMO_COSTS.md)
 - [與團隊對齊的最新 ER 圖](docs/database-er.mmd)
 - 金額使用 DECIMAL(10,2)／BigDecimal，明細加料採獨立主鍵，距離與時間為 distance（公尺）、duration（秒）。
-- 受保護的 API 使用 `Authorization: Bearer <token>`，每次請求查驗帳號的在職狀態與角色。櫃台交易使用 POS 帳號，盤點與配方使用個人帳號。
+- 受保護的 API 使用 `Authorization: Bearer <token>`，每次請求查驗帳號的在職狀態與角色。櫃台交易使用 POS 帳號，盤點使用個人帳號。POS 和個人帳號都能查看配方，店長與總部可編輯共用配方。
 - 取消 API 記錄人工完成退款後的結果，沒有串接實際金流。
 - `unit_price` 包含加料；同規格明細可有多杯，目前取消整筆明細，不拆單杯。
 

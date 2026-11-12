@@ -81,9 +81,15 @@ public class SecurityConfig {
                 // 盤點類型的新增、修改：只限店長、總部（查看在下面，個人帳號都可以）
                 .requestMatchers(HttpMethod.POST, "/api/inventory-counts/types").hasAnyRole("MANAGER", "HQ")
                 .requestMatchers(HttpMethod.PUT, "/api/inventory-counts/types/*").hasAnyRole("MANAGER", "HQ")
-                // 個人帳號才能用，POS 共用帳號不行：自己的打卡紀錄（修改、刪除再由 ShiftStaffService 限店長、總部）、查看配方、原料盤點
-                // 原料盤點也只限個人帳號：經手人要是員工本人
-                .requestMatchers("/api/shift-staff", "/api/shift-staff/**", "/api/recipes", "/api/recipes/**",
+                // 櫃台與個人帳號可查看配方，店長與總部可編輯。
+                .requestMatchers(HttpMethod.PUT, "/api/recipes/{productId:[0-9]+}").hasAnyRole("MANAGER", "HQ")
+                .requestMatchers(HttpMethod.GET, "/api/recipes", "/api/recipes/categories", "/api/recipes/{productId:[0-9]+}")
+                    .hasAnyRole("POS", "TRAINEE", "STAFF", "MANAGER", "HQ")
+                .requestMatchers(HttpMethod.HEAD, "/api/recipes", "/api/recipes/categories", "/api/recipes/{productId:[0-9]+}")
+                    .hasAnyRole("POS", "TRAINEE", "STAFF", "MANAGER", "HQ")
+                .requestMatchers("/api/recipes", "/api/recipes/**").denyAll()
+                // 打卡紀錄與盤點保留個人帳號權限。
+                .requestMatchers("/api/shift-staff", "/api/shift-staff/**",
                     "/api/inventory-counts", "/api/inventory-counts/**")
                     .hasAnyRole("TRAINEE", "STAFF", "MANAGER", "HQ")
                 .requestMatchers("/api/**").authenticated()

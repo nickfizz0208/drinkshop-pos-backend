@@ -26,7 +26,7 @@ Workbench 預設開啟 Safe Updates，會擋下 006 的 UPDATE（Error 1175）�
 8. `003_verify.sql`（選用，需在 021 以前執行）：檢查原始範例訂單金額、庫存及配方原料參照。
 9. `009_raw_material_wastage.sql`：原料報廢紀錄。
 10. `010-012_checklist_shift_schedule_ALL.sql`：檢查表、打卡與排班。也可以依序執行 010、011、012 三個個別檔案。
-11. 依檔名順序執行 013–021，涵蓋排班發佈、POS 職級、排班標籤、盤點及配方。Workbench 選用 `drinkshop_pos` 並停在第一個錯誤。既有庫先確認各版本的實際狀態，再執行尚缺的版本。
+11. 依檔名順序執行 013–022，涵蓋排班發佈、POS 職級、排班標籤、盤點及配方。Workbench 選用 `drinkshop_pos` 並停在第一個錯誤。既有庫先確認各版本的實際狀態，再執行尚缺的版本。
 
 014 加入 POS 職級。櫃台登入需要有效的 POS 帳號。啟用 demo 初始化時會建立缺少的 `staff`、`manager`、`pos`，使用 `pos` 在畫面上開班。
 
@@ -173,7 +173,7 @@ SQL 僅以獨立的 POS 資料庫為目標。
 
 搬資料時會解包多一層引號的配方，列出有資料的杯型共用的原料。只有一種杯型的飲品會保留該杯型全部原料，請用核對查詢檢查紙杯。需要 009、016–020。**這版後端需要 021，請先執行 021 再部署。**
 
-維護範例（目前只能用 SQL）：
+材料清單維護範例（SQL）：
 
 ```sql
 -- 新增半成品「紅茶湯」，由紅茶包做成
@@ -185,4 +185,8 @@ INSERT INTO product_recipe (product_id, prep_id, sort_order) SELECT 6, prep_id, 
 INSERT INTO product_recipe (product_id, inventory_id, sort_order) SELECT 6, inventory_id, 2 FROM inventory WHERE name = '牛奶';
 INSERT INTO product_recipe (product_id, prep_id, sort_order) SELECT 6, prep_id, 3 FROM prep_item WHERE name = '茶凍';
 ```
+
+## 配方份數（022）
+
+先執行 `022_recipe_portions.sql` 再部署配方編輯版後端。份數以每項材料的獨立欄位儲存，舊配方份數留空。店長與總部帳號可在配方頁補登份數並修改製作步驟。若用 SQL 修改同一份配方，請在交易中先鎖定對應的 `product` 資料列，以和網站編輯使用同一把鎖。
 

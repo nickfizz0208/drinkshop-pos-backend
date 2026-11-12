@@ -1,6 +1,7 @@
 package com.example.drinkshop.repository;
 
 import com.example.drinkshop.entity.Product;
+import java.math.BigDecimal;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -52,7 +53,7 @@ public class ProductRepository {
     /** 一杯飲品的材料清單：一列是原料或半成品；半成品附上它由哪些原料做成（以「、」分隔）。 */
     public List<Map<String, Object>> materials(long productId) {
         return jdbc.queryForList("""
-            SELECT r.inventory_id, r.prep_id, COALESCE(i.name, x.name) AS name,
+            SELECT r.inventory_id, r.prep_id, r.portions, COALESCE(i.name, x.name) AS name,
                    (SELECT GROUP_CONCAT(pi.name ORDER BY pi.inventory_id SEPARATOR '、')
                       FROM prep_item_ingredient g JOIN inventory pi ON pi.inventory_id = g.inventory_id
                      WHERE g.prep_id = r.prep_id) AS made_from
@@ -66,5 +67,20 @@ public class ProductRepository {
 
     public Optional<Product> findById(long id) {
         return jdbc.query("SELECT " + COLUMNS + " FROM product WHERE product_id=?", ROW, id).stream().findFirst();
+    }
+
+    public Optional<Product> findLocked(long id) {
+        return jdbc.query("SELECT " + COLUMNS + " FROM product WHERE product_id=? FOR UPDATE", ROW, id)
+            .stream().findFirst();
+    }
+
+    public void updateRecipeSteps(long id, String steps) {
+        jdbc.update("UPDATE product SET recipe_steps=? WHERE product_id=?", steps, id);
+    }
+
+    public int updatePortions(long productId, long materialId, boolean prep, BigDecimal portions) {
+        String column = prep ? "prep_id" : "inventory_id";
+        return jdbc.update("UPDATE product_recipe SET portions=? WHERE product_id=? AND " + column + "=?",
+            portions, productId, materialId);
     }
 }
