@@ -23,7 +23,12 @@ Workbench 預設開啟 Safe Updates，會擋下 006 的 UPDATE（Error 1175）�
 5. `006_demo_ingredient_costs.sql`：新增每單位成本與八種原料假成本（本機已套用）。
 6. `007_payment_and_wastage_workbench.sql`：收款、退款與損耗欄位。僅供新庫或經團隊同意的舊庫升級，先備份並停止所有後端，需要 CREATE/ALTER ROUTINE 權限。完整升級後重跑會跳過，部分升級會在變更前停止；不要忽略錯誤繼續。不要直接執行 `007_payment_and_wastage.sql`。共用 Aiven 已建好，不執行這些 SQL。
 7. `008_member_geo_source.sql`：會員座標來源欄位，僅供本機或團隊同意後升級；不要自行對 Aiven 執行。
-8. `003_verify.sql`（選用）：檢查原始範例訂單金額、庫存及配方原料參照。
+8. `003_verify.sql`（選用，需在 021 以前執行）：檢查原始範例訂單金額、庫存及配方原料參照。
+9. `009_raw_material_wastage.sql`：原料報廢紀錄。
+10. `010-012_checklist_shift_schedule_ALL.sql`：檢查表、打卡與排班。也可以依序執行 010、011、012 三個個別檔案。
+11. 依檔名順序執行 013–021，涵蓋排班發佈、POS 職級、排班標籤、盤點及配方。Workbench 選用 `drinkshop_pos` 並停在第一個錯誤。既有庫先確認各版本的實際狀態，再執行尚缺的版本。
+
+014 加入 POS 職級。櫃台登入需要有效的 POS 帳號。啟用 demo 初始化時會建立缺少的 `staff`、`manager`、`pos`，使用 `pos` 在畫面上開班。
 
 `scripts/` 裡的 Python 腳本只連本機 `127.0.0.1:3306`，不能用於雲端資料庫。
 
@@ -109,7 +114,7 @@ SQL 僅以獨立的 POS 資料庫為目標。
 
 `016_inventory_count.sql` 新增盤點紀錄表 `inventory_count`：每次盤點每項原料一列，保存當時的帳面數量、實點數量、差異與單位成本。同一支檔案也在 `inventory` 加上 `allow_decimal`（預設 TRUE），控制盤點時小單位能不能填小數，例如紙杯可設成只能填整數：`UPDATE inventory SET allow_decimal = FALSE WHERE name IN ('中杯紙杯', '大杯紙杯');`。盤點只記錄，不修改 `inventory.book_qty`；`inventory.reported_qty`／`reported_by`／`reported_at` 仍會更新成最新一次。
 
-須由資料庫負責人先確認升級，不可自行對 Aiven 執行。預設未啟用：升級成功後，在本機未追蹤的 `.pos-local.properties` 加上 `pos.inventory-count.enabled=true` 並重新啟動後端，盤點頁才能送出。未啟用時送出盤點會回 503，不會寫入任何資料。
+共用庫由資料庫負責人確認升級。盤點預設啟用，依賴完整的盤點結構。若設 `pos.inventory-count.enabled=false`，盤點送出回 503。
 
 ## 盤點紀錄改成表頭／明細（017，尚未套用共用庫）
 
@@ -159,14 +164,14 @@ SQL 僅以獨立的 POS 資料庫為目標。
 
 `021_recipe_tables.sql`：
 
-- **配方只記「用了哪些材料」**（`product_recipe`），不記份量；份量與做法寫在 `product.recipe_steps`（文字）。中杯、大杯共用同一份清單，紙杯不列入。拿掉 `product.recipe_json`。
+- **配方只記「用了哪些材料」**（`product_recipe`）。份量與做法寫在 `product.recipe_steps`。舊的 JSON 封存在 `product.recipe_json_legacy`，供核對舊杯型與份量。
 - **半成品** `prep_item`（例如茶凍、紅茶湯）與它用了哪些原料 `prep_item_ingredient`。配方的每一列是原料或半成品其中一個。
 - **加料** `topping` 可以指向原料或半成品；拿掉扣料量 `deduct_qty`。
 - 原料「茶凍」改成半成品，配方與加料的茶凍都改指向半成品；原料「茶凍」若有盤點或報廢紀錄則保留（見檔案最後的核對查詢）。
 - **點餐和配方分開**：點餐不讀配方，沒有配方的飲品照樣可以點；每杯不再計算原料成本（`order_item.material_cost` 之後為 NULL，舊訂單保留）。日結的損耗金額只加總原料報廢，飲品報廢只算杯數。
 - `recipe_cost_report.sql` 已停用。
 
-搬資料規則：舊 `recipe_json` 中、大杯都有的原料才列入（紙杯自然排除）；只有一種杯型的飲品則全部列入，可能含紙杯，請用核對查詢檢查。需要 009、016–020。**這版後端需要 021，請先執行 021 再部署。**
+搬資料時會解包多一層引號的配方，列出有資料的杯型共用的原料。只有一種杯型的飲品會保留該杯型全部原料，請用核對查詢檢查紙杯。需要 009、016–020。**這版後端需要 021，請先執行 021 再部署。**
 
 維護範例（目前只能用 SQL）：
 

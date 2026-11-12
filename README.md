@@ -1,9 +1,9 @@
 # 手搖飲 POS 後端
 
-目前已完成第一階段：菜單／規則查詢、員工身份驗證、建立多杯訂單、後端計價與扣料、製作狀態、取消回補、已登入員工棄單與操作人紀錄及損耗照片 API。
+支援 POS 點餐、計價、收款、取消退款、會員與外送、開關班、原料報廢、盤點、打卡、檢查表、排班及配方查詢 API。
 
 技術：Java 21、Spring Boot 3.5.16、Gradle 8.14.3、Spring JDBC、MySQL（團隊共用資料庫架在 Aiven）。
-Angular 前端已串接；會員資料 API 已完成（見 docs/MEMBER_API.md）；會員地圖、菜單編輯、配方查看、盤點與正式開班日結介面待其他模組接入。
+Angular 前端提供櫃台與個人帳號工作區。配方查詢目前由後端提供 API。
 
 ## 連線設定（第一次 clone 必做）
 
@@ -28,9 +28,8 @@ pos.demo.password=<見共用文件>
 - 有人重設 Aiven 密碼時，請同步更新共用文件。
 - 共用文件請設為僅限組員檢視。
 - 資料庫名稱是 `drinkshop_pos`，不是 Aiven 預設的 `defaultdb`。
-- `pos.demo.enabled=true` 會在後端啟動時建立 `staff`／`manager` 測試帳號，並開今天的班；少了它無法登入，也無法建立訂單。全組請用同一個 demo 密碼（第一個啟動的人建立帳號後，之後不會被覆寫）。
-- 每天第一次使用前，需有一位組員啟動後端，當天才會開班。
-- 雲端資料庫已建好，**組員不需要再執行 `database/` 裡的 SQL**；重建方式見 [database/README.md](database/README.md)。
+- `pos.demo.enabled=true` 會建立缺少的 `staff`、`manager`、`pos` 測試帳號。用 `pos` 登入後，在畫面上選擇開班人員。
+- 啟動整合版前，請確認資料庫結構已升級至 021。共用庫的升級由資料庫負責人執行。見 [database/README.md](database/README.md)。
 - 未建立 `.pos-local.properties` 時，程式會改連本機 `localhost:3306/drinkshop_pos`。
 
 ## 啟動與測試
@@ -46,21 +45,13 @@ pos.demo.password=<見共用文件>
 
 ### Swagger UI（瀏覽器測 API）
 
-第一次下載此開發分支，先安裝 Java 21，再執行：
-
-```powershell
-git clone --branch codex/integration https://github.com/nickfizz0208/drinkshop-pos-backend.git
-cd drinkshop-pos-backend
-Copy-Item .pos-local.properties.example .pos-local.properties
-```
-
 依上方「連線設定」填入資料庫設定後，執行 `& .\scripts\start-pos.ps1 -Build`。只看 Swagger 與測後端 API 不需要啟動 Angular。每位使用者都在自己的電腦啟動後端，並開啟自己的 `localhost`。
 
 1. 啟動後開啟 [Swagger UI](http://localhost:8083/swagger-ui/index.html)（也可使用 `/swagger-ui.html`）。若有設定 `PORT`，請改用對應連接埠。
-2. 點右上角 **Authorize**，輸入有效員工帳號與密碼（與前端登入相同的 HTTP Basic 帳密）。
+2. 用 `POST /api/auth/login` 以員工帳密取得 JWT。點右上角 **Authorize**，貼上回應中的 `token`。
 3. 展開 API，點 **Try it out**，填入參數或 JSON，再點 **Execute** 查看回應。
 
-文件與 UI 可免登入讀取；除 `/api/health` 外，API 仍需員工驗證。OpenAPI JSON 位於 `/v3/api-docs`。
+文件、健康檢查及登入入口可公開存取。OpenAPI JSON 位於 `/v3/api-docs`。
 建立訂單、收款、取消與照片上傳會操作目前設定的資料庫；團隊共用資料庫請使用測試資料。
 Swagger UI 不設定跨重新整理保存帳密，重新整理後可再次使用 Authorize。
 
@@ -78,7 +69,7 @@ Swagger UI 不設定跨重新整理保存帳密，重新整理後可再次使用
 - [虛構原料成本與每杯成本範例](docs/DEMO_COSTS.md)
 - [與團隊對齊的最新 ER 圖](docs/database-er.mmd)
 - 金額使用 DECIMAL(10,2)／BigDecimal，明細加料採獨立主鍵，距離與時間為 distance（公尺）、duration（秒）。
-- 目前以 HTTP Basic 驗證 `staff`／`manager`，每次請求檢查帳號是否在職；不是 JWT 登入介面。
+- 受保護的 API 使用 `Authorization: Bearer <token>`，每次請求查驗帳號的在職狀態與角色。櫃台交易使用 POS 帳號，盤點與配方使用個人帳號。
 - 取消 API 記錄人工完成退款後的結果，沒有串接實際金流。
 - `unit_price` 包含加料；同規格明細可有多杯，目前取消整筆明細，不拆單杯。
 

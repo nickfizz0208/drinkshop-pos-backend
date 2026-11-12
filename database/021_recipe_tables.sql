@@ -11,14 +11,43 @@
 --      那筆原料就叫「茶凍」（做好的成品，範例資料）→ 改成半成品後刪掉這筆原料；
 --      是「茶凍粉」這類材料（共用庫）→ 保留原料，記成半成品「茶凍」的材料。
 --      配方與加料裡用到那筆原料的地方，都改指向半成品「茶凍」。
---   6. 拿掉 product.recipe_json。點餐不再讀配方，每杯不再計算原料成本（order_item.material_cost 之後都是 NULL，舊訂單保留）。
+--   6. 封存舊配方為 product.recipe_json_legacy。點餐不再讀配方，每杯不再計算原料成本（舊訂單保留）。
 --
--- 搬資料的規則：舊的 recipe_json 分中杯、大杯。兩種杯型都有的原料才列入（紙杯中大杯不同，自然排除）；
+-- 搬資料的規則：有資料的杯型都包含的原料才列入（紙杯中大杯不同，自然排除）；
 -- 只有一種杯型的飲品，該杯型的原料全部列入（可能含紙杯，請用最後的核對查詢檢查）。
 -- 舊配方指到不存在的原料會略過，執行前可先用下面這段找出來：
 --   SELECT p.product_id, p.name, j.inventory_id FROM product p,
 --     JSON_TABLE(p.recipe_json, '$.*[*]' COLUMNS(inventory_id BIGINT PATH '$.inventoryId')) j
 --   WHERE NOT EXISTS (SELECT 1 FROM inventory i WHERE i.inventory_id = j.inventory_id);
+
+-- 先展開舊資料。有些配方在 JSON 欄位內又包成一個字串，需先解包。
+CREATE TEMPORARY TABLE recipe_migration_021 (
+  product_id BIGINT NOT NULL,
+  size_index INT NOT NULL,
+  ord INT NOT NULL,
+  inventory_id BIGINT NULL,
+  PRIMARY KEY (product_id, size_index, ord)
+) ENGINE=InnoDB;
+
+INSERT INTO recipe_migration_021 (product_id, size_index, ord, inventory_id)
+SELECT p.product_id, s.size_index, j.ord, j.inventory_id
+FROM (
+  SELECT product_id, CASE WHEN JSON_TYPE(recipe_json) = 'STRING'
+    THEN CAST(JSON_UNQUOTE(recipe_json) AS JSON) ELSE recipe_json END AS recipe
+  FROM product
+) p
+JOIN JSON_TABLE(JSON_KEYS(p.recipe), '$[*]'
+       COLUMNS (size_index FOR ORDINALITY, size_name VARCHAR(255) PATH '$')) s
+JOIN JSON_TABLE(JSON_EXTRACT(p.recipe, CONCAT('$.', JSON_QUOTE(s.size_name))), '$[*]'
+       COLUMNS (ord FOR ORDINALITY, inventory_id BIGINT PATH '$.inventoryId')) j;
+
+CREATE TEMPORARY TABLE recipe_migration_021_sizes (
+  product_id BIGINT NOT NULL PRIMARY KEY,
+  size_count INT NOT NULL
+) ENGINE=InnoDB;
+
+INSERT INTO recipe_migration_021_sizes (product_id, size_count)
+SELECT product_id, COUNT(DISTINCT size_index) FROM recipe_migration_021 GROUP BY product_id;
 
 -- 1. 半成品
 CREATE TABLE prep_item (
@@ -64,31 +93,7 @@ SELECT @jelly_prep, i.inventory_id FROM inventory i
 WHERE i.inventory_id = @jelly_inv AND i.name <> '茶凍' AND @jelly_prep IS NOT NULL
   AND NOT EXISTS (SELECT 1 FROM prep_item_ingredient g WHERE g.prep_id = @jelly_prep AND g.inventory_id = i.inventory_id);
 
--- 4. 從 recipe_json 搬出材料清單（暫存表，最後刪除）
---    暫存表也要有主鍵：Aiven 開了 sql_require_primary_key，沒有主鍵的表會被擋（錯誤 3750）
-CREATE TABLE recipe_migration_021 (
-  product_id BIGINT NOT NULL,
-  size VARCHAR(2) NOT NULL,
-  ord INT NOT NULL,
-  inventory_id BIGINT NULL,
-  PRIMARY KEY (product_id, size, ord)
-) ENGINE=InnoDB;
-
-INSERT INTO recipe_migration_021 (product_id, size, ord, inventory_id)
-SELECT p.product_id, s.size, j.ord, j.inventory_id
-FROM product p
-JOIN (SELECT 'M' AS size UNION ALL SELECT 'L') s
-JOIN JSON_TABLE(JSON_EXTRACT(p.recipe_json, CONCAT('$.', s.size)), '$[*]'
-       COLUMNS (ord FOR ORDINALITY, inventory_id BIGINT PATH '$.inventoryId')) j;
-
-CREATE TABLE recipe_migration_021_sizes (
-  product_id BIGINT NOT NULL PRIMARY KEY,
-  size_count INT NOT NULL
-) ENGINE=InnoDB;
-
-INSERT INTO recipe_migration_021_sizes (product_id, size_count)
-SELECT product_id, COUNT(DISTINCT size) FROM recipe_migration_021 GROUP BY product_id;
-
+-- 4. 從舊配方搬出材料清單
 INSERT INTO product_recipe (product_id, inventory_id, prep_id, sort_order)
 SELECT t.product_id,
        CASE WHEN t.inventory_id = @jelly_inv AND @jelly_prep IS NOT NULL THEN NULL ELSE t.inventory_id END,
@@ -98,10 +103,10 @@ FROM recipe_migration_021 t
 JOIN inventory i ON i.inventory_id = t.inventory_id
 JOIN recipe_migration_021_sizes c ON c.product_id = t.product_id
 GROUP BY t.product_id, t.inventory_id, i.name, c.size_count
-HAVING c.size_count = 1 OR COUNT(DISTINCT t.size) = 2;
+HAVING COUNT(DISTINCT t.size_index) = c.size_count;
 
-DROP TABLE recipe_migration_021;
-DROP TABLE recipe_migration_021_sizes;
+DROP TEMPORARY TABLE recipe_migration_021;
+DROP TEMPORARY TABLE recipe_migration_021_sizes;
 
 -- 5. 加料：可指向原料或半成品；拿掉扣料量
 --    舊的 CHECK (price >= 0 AND deduct_qty > 0) 是自動命名的，先依內容找出名稱再刪掉
@@ -128,7 +133,7 @@ ALTER TABLE topping
 UPDATE topping SET prep_id = @jelly_prep, inventory_id = NULL
 WHERE name = '茶凍' AND @jelly_prep IS NOT NULL AND topping_id > 0;
 
--- 6. 原料本身就叫「茶凍」（成品）才拿掉：先從盤點類型移除；有盤點或報廢紀錄的話保留（避免歷史紀錄斷掉）
+-- 6. 原料本身就叫「茶凍」（成品）才拿掉；仍有其他加料、盤點或報廢引用時保留
 --    「茶凍粉」這類材料不會被刪
 DELETE FROM inventory_count_type_item
 WHERE inventory_id = @jelly_inv AND type_id > 0
@@ -136,11 +141,12 @@ WHERE inventory_id = @jelly_inv AND type_id > 0
 
 DELETE FROM inventory
 WHERE inventory_id = @jelly_inv AND name = '茶凍'
+  AND NOT EXISTS (SELECT 1 FROM topping t WHERE t.inventory_id = inventory.inventory_id)
   AND NOT EXISTS (SELECT 1 FROM inventory_count_line l WHERE l.inventory_id = inventory.inventory_id)
   AND NOT EXISTS (SELECT 1 FROM raw_material_wastage w WHERE w.inventory_id = inventory.inventory_id);
 
--- 7. 拿掉舊的配方 JSON
-ALTER TABLE product DROP COLUMN recipe_json;
+-- 7. 封存舊配方，保留材料份量與遷移前的內容供核對
+ALTER TABLE product CHANGE COLUMN recipe_json recipe_json_legacy JSON NULL;
 
 -- 核對：
 -- 每杯飲料的材料清單（確認沒有漏、沒有混進紙杯）

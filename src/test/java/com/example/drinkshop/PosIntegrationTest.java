@@ -92,13 +92,15 @@ class PosIntegrationTest {
     private double stock(long id) { return jdbc.queryForObject("SELECT book_qty FROM inventory WHERE inventory_id=?",Double.class,id); }
     private int countOrders() { return jdbc.queryForObject("SELECT COUNT(*) FROM pos_order",Integer.class); }
 
-    @Test void swaggerDocumentsApiAndBasicAuthenticationWithoutLogin() throws Exception {
+    @Test void swaggerDocumentsApiAndBearerAuthenticationWithoutLogin() throws Exception {
         mvc.perform(get("/v3/api-docs"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.components.securitySchemes.basicAuth.type").value("http"))
-            .andExpect(jsonPath("$.components.securitySchemes.basicAuth.scheme").value("basic"))
-            .andExpect(jsonPath("$.security[0].basicAuth").isArray())
+            .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.type").value("http"))
+            .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.scheme").value("bearer"))
+            .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.bearerFormat").value("JWT"))
+            .andExpect(jsonPath("$.security[0].bearerAuth").isArray())
             .andExpect(jsonPath("$.paths['/api/health'].get.security").isEmpty())
+            .andExpect(jsonPath("$.paths['/api/auth/login'].post.security").isEmpty())
             .andExpect(jsonPath("$.paths['/api/orders'].post.requestBody.content['application/json'].schema").exists())
             .andExpect(jsonPath("$.paths['/api/orders/{id}/items/{itemId}/photo'].post.requestBody.content['multipart/form-data']").exists());
         mvc.perform(get("/v3/api-docs/swagger-config"))
