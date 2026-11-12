@@ -27,7 +27,7 @@ Workbench 預設開啟 Safe Updates，會擋下 006 的 UPDATE（Error 1175）�
 9. `009_raw_material_wastage.sql`：原料報廢紀錄。
 10. `010-012_checklist_shift_schedule_ALL.sql`：檢查表、打卡與排班。也可以依序執行 010、011、012 三個個別檔案。
 11. 依檔名順序執行 013–020，涵蓋排班發佈、POS 職級、排班標籤及盤點。
-12. 執行 [`021-022_recipe_upgrade_workbench.sql`](021-022_recipe_upgrade_workbench.sql)。這支合併檔取代分開執行的 021 和 022。既有庫先確認 020 以前的版本，再執行合併檔。
+12. 執行 [`026_recipe_upgrade_workbench.sql`](026_recipe_upgrade_workbench.sql)。這支合併檔取代分開執行的 021 和 022。既有庫先確認 020 以前的版本，再執行合併檔。
 
 014 加入 POS 職級。櫃台登入需要有效的 POS 帳號。啟用 demo 初始化時會建立缺少的 `staff`、`manager`、`pos`，使用 `pos` 在畫面上開班。
 
@@ -189,7 +189,7 @@ INSERT INTO product_recipe (product_id, prep_id, sort_order) SELECT 6, prep_id, 
 
 ## 配方材料與份數升級（021–022）
 
-配方編輯版後端需要 022。由資料庫負責人備份並暫停後端，在 Workbench 同一個連線執行 [`021-022_recipe_upgrade_workbench.sql`](021-022_recipe_upgrade_workbench.sql) 整份檔案。帳號須有 `CREATE ROUTINE`、`ALTER ROUTINE`、`EXECUTE`、`CREATE TEMPORARY TABLES` 及遷移所需的表結構和資料權限。
+配方編輯版後端需要 022 的結構。由資料庫負責人備份並暫停後端，在 Workbench 同一個連線執行 [`026_recipe_upgrade_workbench.sql`](026_recipe_upgrade_workbench.sql) 整份檔案。帳號須有 `CREATE ROUTINE`、`ALTER ROUTINE`、`EXECUTE`、`CREATE TEMPORARY TABLES` 及遷移所需的表結構和資料權限。
 
 - 尚未跑 021 時，合併檔會依序完成兩步。已完成 021 時，只補上份數欄位。已完成 022 時，會保留現有資料。
 - 保留的 021 和 022 個別檔適用於分開升級的流程。同一次升級選合併檔或個別檔其中一種。
