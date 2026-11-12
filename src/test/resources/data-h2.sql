@@ -17,16 +17,19 @@ INSERT INTO inventory (inventory_id,name,base_unit,pack_unit,per_pack,book_qty,s
  (6,'珍珠','份',NULL,NULL,100,20),
  (7,'茶凍','份',NULL,NULL,100,20),
  (8,'芒果冰沙料','份',NULL,NULL,8,10);
+-- 023：原料分類（芒果冰沙料留空＝未分類）
+UPDATE inventory SET category=CASE WHEN inventory_id IN (1,2) THEN '包材' WHEN inventory_id IN (3,4) THEN '茶葉' WHEN inventory_id IN (5,6,7) THEN '底料' END WHERE inventory_id BETWEEN 1 AND 7;
 
 -- 021：配方只記材料清單（中大杯共用、不含紙杯），份量寫在 recipe_steps；茶凍是半成品
-INSERT INTO product (product_id,name,category,base_price,large_extra,hot_allowed,recipe_steps,min_view_level) VALUES
- (1,'經典紅茶','茶類',25,5,TRUE,'依杯型備杯，加入紅茶，依客製甜度與冰量調製。','TRAINEE'),
- (2,'茉香綠茶','茶類',25,5,TRUE,'依杯型備杯，加入綠茶，依客製甜度與冰量調製。','TRAINEE'),
- (3,'經典奶茶','奶茶',40,10,TRUE,'依杯型備杯，混合紅茶與一份奶料，依客製規格調製。','TRAINEE'),
- (4,'珍珠奶茶','奶茶',50,10,TRUE,'依杯型備杯，加入一份珍珠、紅茶與一份奶料。品項已含珍珠，額外點珍珠代表再加一份。','TRAINEE'),
- (5,'芒果冰沙','冰沙',55,10,FALSE,'依杯型備杯，加入一份冰沙料，以固定正常甜度與正常冰量攪打。','STAFF');
+-- 024：容量價格 price_m（中杯）、price_l（大杯）、price_bottle（瓶，NULL＝不賣）
+INSERT INTO product (product_id,name,category,price_m,price_l,price_bottle,hot_allowed,recipe_steps,min_view_level) VALUES
+ (1,'經典紅茶','茶類',25,30,NULL,TRUE,'依杯型備杯，加入紅茶，依客製甜度與冰量調製。','TRAINEE'),
+ (2,'茉香綠茶','茶類',25,30,NULL,TRUE,'依杯型備杯，加入綠茶，依客製甜度與冰量調製。','TRAINEE'),
+ (3,'經典奶茶','奶茶',40,50,NULL,TRUE,'依杯型備杯，混合紅茶與一份奶料，依客製規格調製。','TRAINEE'),
+ (4,'珍珠奶茶','奶茶',50,60,NULL,TRUE,'依杯型備杯，加入一份珍珠、紅茶與一份奶料。品項已含珍珠，額外點珍珠代表再加一份。','TRAINEE'),
+ (5,'芒果冰沙','冰沙',55,65,NULL,FALSE,'依杯型備杯，加入一份冰沙料，以固定正常甜度與正常冰量攪打。','STAFF');
 
-INSERT INTO prep_item (prep_id,name,steps) VALUES (1,'茶凍','紅茶煮好後加吉利丁冷藏定型。');
+INSERT INTO prep_item (prep_id,name,steps,category) VALUES (1,'茶凍','紅茶煮好後加吉利丁冷藏定型。','底料');
 INSERT INTO prep_item_ingredient (prep_id,inventory_id) VALUES (1,3);
 ALTER TABLE prep_item ALTER COLUMN prep_id RESTART WITH 2;
 

@@ -309,7 +309,7 @@ class PosIntegrationTest {
     }
 
     @Test void fractionalPricesCashAndCancellationStayExact() throws Exception {
-        jdbc.update("UPDATE product SET base_price=25.15,large_extra=5.05 WHERE product_id=1");
+        jdbc.update("UPDATE product SET price_m=25.15,price_l=30.20 WHERE product_id=1");
         jdbc.update("UPDATE topping SET price=10.10 WHERE topping_id=1");
         Item line=new Item(1L,Size.L,Temperature.COLD,Sugar.HALF,Ice.LESS,3,List.of(1L),null);
         var request=new Create(UUID.randomUUID(),Source.TAKE_OUT,Payment.CASH,null,
@@ -326,6 +326,24 @@ class PosIntegrationTest {
         assertEquals(0,new BigDecimal("200.25").compareTo(json.readTree(response).get("change_cash").decimalValue()));
     }
 
+    @Test void sizePricesComeFromProductAndUnsoldSizeIsRejected() throws Exception {
+        // 024：只賣大杯與瓶裝的飲品（沒有中杯）
+        jdbc.update("UPDATE product SET price_m=NULL,price_l=50,price_bottle=75 WHERE product_id=3");
+        mvc.perform(get("/api/menu").with(login("test_staff",PASSWORD)))
+            .andExpect(jsonPath("$.products[2].price_m").value(org.hamcrest.Matchers.nullValue()))
+            .andExpect(jsonPath("$.products[2].price_bottle").value(75.0));
+        var bottle=new Item(3L,Size.BOTTLE,Temperature.COLD,Sugar.HALF,Ice.LESS,2,List.of(1L),null);
+        var result=create(request(bottle));
+        assertEquals("BOTTLE",result.get("items").get(0).get("size").asText());
+        assertEquals(0,new BigDecimal("85.00").compareTo(result.get("items").get(0).get("unit_price").decimalValue()));
+        assertEquals(0,new BigDecimal("170.00").compareTo(result.get("total").decimalValue()));
+        int before=countOrders();
+        mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
+            .content(json.writeValueAsBytes(request(item(3,1,List.of())))))
+            .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value("「經典奶茶」沒有賣中杯"));
+        assertEquals(before,countOrders());
+    }
+
     @Test void rejectsExcessiveScaleOrOutOfRangeAmountsBeforeWriting() throws Exception {
         for(String amount:List.of("100.001","100000000.00","-1")) {
             var request=new Create(UUID.randomUUID(),Source.TAKE_OUT,Payment.CASH,null,
@@ -337,7 +355,7 @@ class PosIntegrationTest {
     }
 
     @Test void totalCannotOverflowDatabaseDecimalRange() throws Exception {
-        jdbc.update("UPDATE product SET base_price=99999999.99 WHERE product_id=1");
+        jdbc.update("UPDATE product SET price_m=99999999.99 WHERE product_id=1");
         mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
             .content(json.writeValueAsBytes(request(item(1,2,List.of()))))).andExpect(status().isBadRequest());
         assertEquals(4,countOrders());assertEquals(98,stock(1));

@@ -39,6 +39,8 @@ CREATE TABLE inventory (
   reported_by BIGINT NULL,
   reported_at DATETIME(6) NULL,
   unit_cost DECIMAL(10,2) NULL,
+  on_sale BOOLEAN NOT NULL DEFAULT TRUE,
+  category VARCHAR(20) NULL,
   FOREIGN KEY (reported_by) REFERENCES staff_account(staff_id),
   CHECK (book_qty >= 0 AND safety_stock >= 0),
   CONSTRAINT chk_inventory_unit_cost CHECK (unit_cost IS NULL OR unit_cost >= 0),
@@ -51,13 +53,15 @@ CREATE TABLE product (
   product_id BIGINT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(50) NOT NULL UNIQUE,
   category VARCHAR(30) NOT NULL,
-  base_price DECIMAL(10,2) NOT NULL,
-  large_extra DECIMAL(10,2) NOT NULL DEFAULT 0,
+  price_m DECIMAL(10,2) NULL,
+  price_l DECIMAL(10,2) NULL,
+  price_bottle DECIMAL(10,2) NULL,
   hot_allowed BOOLEAN NOT NULL DEFAULT TRUE,
   recipe_steps TEXT NOT NULL,
   min_view_level ENUM('TRAINEE','STAFF','POS','MANAGER','HQ') NOT NULL DEFAULT 'TRAINEE',
   on_sale BOOLEAN NOT NULL DEFAULT TRUE,
-  CHECK (base_price >= 0 AND large_extra >= 0)
+  CHECK ((price_m IS NULL OR price_m >= 0) AND (price_l IS NULL OR price_l >= 0) AND (price_bottle IS NULL OR price_bottle >= 0)),
+  CHECK (price_m IS NOT NULL OR price_l IS NOT NULL OR price_bottle IS NOT NULL)
 );
 
 -- 021：半成品與材料清單
@@ -65,6 +69,8 @@ CREATE TABLE prep_item (
   prep_id BIGINT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(30) NOT NULL,
   steps TEXT NULL,
+  on_sale BOOLEAN NOT NULL DEFAULT TRUE,
+  category VARCHAR(20) NULL,
   CONSTRAINT uq_prep_item_name UNIQUE (name)
 );
 CREATE TABLE prep_item_ingredient (
@@ -179,7 +185,7 @@ CREATE TABLE order_item (
   order_id BIGINT NOT NULL,
   product_id BIGINT NOT NULL,
   product_name VARCHAR(50) NOT NULL COMMENT 'Name at purchase',
-  size ENUM('M','L') NOT NULL,
+  size ENUM('M','L','BOTTLE') NOT NULL,
   temperature ENUM('COLD','WARM','HOT') NOT NULL,
   sugar ENUM('NORMAL','LESS','HALF','LIGHT','NONE') NOT NULL,
   ice ENUM('NORMAL','LESS','LIGHT','NONE') NOT NULL,

@@ -4,6 +4,7 @@ import com.example.drinkshop.dto.OrderRequests.*;
 import com.example.drinkshop.entity.Staff;
 import com.example.drinkshop.exception.ApiException;
 import com.example.drinkshop.repository.PosRepository;
+import com.example.drinkshop.repository.SaleStatusRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -24,9 +25,10 @@ import static com.example.drinkshop.repository.PosRepository.*;
 public class OrderService {
     private final PosRepository repo;
     private final RuleService rules;
+    private final SaleStatusRepository sale;
     private final Clock clock;
-    public OrderService(PosRepository repo,RuleService rules,Clock clock) {
-        this.repo=repo; this.rules=rules; this.clock=clock;
+    public OrderService(PosRepository repo,RuleService rules,SaleStatusRepository sale,Clock clock) {
+        this.repo=repo; this.rules=rules; this.sale=sale; this.clock=clock;
     }
     // 計價後的暫存明細：price 是「含加料的單杯售價」。
     private record Priced(Item item,Map<String,Object> product,List<Map<String,Object>> toppings,BigDecimal price) {}
@@ -66,11 +68,16 @@ public class OrderService {
         for (Item item:request.items()) {
             var product=repo.product(item.productId());
             rules.validate(item,product);
-            BigDecimal price=Money.from(product,"base_price").add(item.size()==Size.L?Money.from(product,"large_extra"):Money.ZERO);
+            // 原料或半成品停售（022）：用到它的飲品一起停售
+            var stopped=sale.stoppedMaterialsOfProduct(item.productId());
+            if (!stopped.isEmpty()) throw ApiException.conflict("「"+product.get("name")+"」已停售（"+String.join("、",stopped)+" 停售）");
+            BigDecimal price=sizePrice(product,item.size());
             var toppings=new ArrayList<Map<String,Object>>();
             for (long id:item.toppingIds()) {
                 var topping=repo.topping(id);
                 if (!flag(topping,"on_sale")) throw ApiException.conflict("加料已下架");
+                var toppingStopped=sale.stoppedMaterialsOfTopping(id);
+                if (!toppingStopped.isEmpty()) throw ApiException.conflict("加料「"+topping.get("name")+"」已停售（"+String.join("、",toppingStopped)+" 停售）");
                 price=price.add(Money.from(topping,"price"));
                 toppings.add(topping);
             }
@@ -104,6 +111,16 @@ public class OrderService {
                 itemId,topping.get("topping_id"),topping.get("name"),topping.get("price"));
         }
         return repo.detail(orderId);
+    }
+
+    // 這杯飲品這個容量的價格（024）；沒有賣這個容量就擋下，不會用其他容量的價格代替。
+    private static BigDecimal sizePrice(Map<String,Object> product,Size size) {
+        String column=switch(size) { case M -> "price_m"; case L -> "price_l"; case BOTTLE -> "price_bottle"; };
+        if (product.get(column)==null) {
+            String label=switch(size) { case M -> "中杯"; case L -> "大杯"; case BOTTLE -> "瓶裝"; };
+            throw ApiException.bad("「"+product.get("name")+"」沒有賣"+label);
+        }
+        return Money.from(product,column);
     }
 
     private Map<String,Object> replay(Map<String,Object> order,String hash,long staffId) {

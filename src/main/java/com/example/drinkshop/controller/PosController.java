@@ -2,6 +2,7 @@ package com.example.drinkshop.controller;
 
 import com.example.drinkshop.dto.OrderRequests.*;
 import com.example.drinkshop.repository.PosRepository;
+import com.example.drinkshop.repository.SaleStatusRepository;
 import com.example.drinkshop.service.*;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import jakarta.validation.Valid;
@@ -49,8 +50,11 @@ public class PosController {
     @GetMapping("/menu")
     Map<String,Object> menu() {
         // 點餐菜單只列必要欄位，不能把扣料配方或帳號密碼雜湊傳給前端。
-        return Map.of("products",repo.rows("SELECT product_id,name,category,base_price,large_extra,hot_allowed FROM product WHERE on_sale=TRUE ORDER BY product_id"),
-            "toppings",repo.rows("SELECT topping_id,name,price FROM topping WHERE on_sale=TRUE ORDER BY topping_id"));
+        // 容量價格（024）：price_m、price_l、price_bottle，null＝這杯不賣這個容量。
+        // 停售的不列：自己停售，或用到的原料、半成品停售（022，見 SaleStatusRepository）。
+        return Map.of("products",repo.rows("SELECT p.product_id,p.name,p.category,p.price_m,p.price_l,p.price_bottle,p.hot_allowed FROM product p WHERE "
+                +SaleStatusRepository.PRODUCT_SELLABLE+" ORDER BY p.product_id"),
+            "toppings",repo.rows("SELECT t.topping_id,t.name,t.price FROM topping t WHERE "+SaleStatusRepository.TOPPING_SELLABLE+" ORDER BY t.topping_id"));
     }
     @GetMapping("/rules")
     List<Map<String,Object>> rules() {

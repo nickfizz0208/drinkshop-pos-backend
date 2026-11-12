@@ -80,6 +80,10 @@ public class SecurityConfig {
                 // 盤點類型的新增、修改：只限店長、總部（查看在下面，個人帳號都可以）
                 .requestMatchers(HttpMethod.POST, "/api/inventory-counts/types").hasAnyRole("MANAGER", "HQ")
                 .requestMatchers(HttpMethod.PUT, "/api/inventory-counts/types/*").hasAnyRole("MANAGER", "HQ")
+                // 停售管理：修改限門市 POS、店長、總部；查看所有登入帳號都可以（落到下面的 /api/**）
+                .requestMatchers(HttpMethod.PUT, "/api/sale-status").hasAnyRole("POS", "MANAGER", "HQ")
+                // 原料、半成品的分類（023）：只限店長、總部
+                .requestMatchers(HttpMethod.PUT, "/api/sale-status/categories").hasAnyRole("MANAGER", "HQ")
                 // 個人帳號才能用，POS 共用帳號不行：自己的打卡紀錄（修改、刪除再由 ShiftStaffService 限店長、總部）、查看配方、原料盤點
                 // 原料盤點也只限個人帳號：經手人要是員工本人
                 .requestMatchers("/api/shift-staff", "/api/shift-staff/**", "/api/recipes", "/api/recipes/**",

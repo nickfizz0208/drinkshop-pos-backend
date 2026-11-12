@@ -74,6 +74,7 @@ Swagger UI 不設定跨重新整理保存帳密，重新整理後可再次使用
 
 - [API 路徑、Postman 請求範例與限制](docs/POS_API.md)
 - [會員 API](docs/MEMBER_API.md)
+- [停售管理 API（原料連動停售）](docs/SALE_STATUS.md)
 - [資料庫與假資料](database/README.md)
 - [虛構原料成本與每杯成本範例](docs/DEMO_COSTS.md)
 - [與團隊對齊的最新 ER 圖](docs/database-er.mmd)

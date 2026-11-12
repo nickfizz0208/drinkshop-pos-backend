@@ -28,8 +28,9 @@ erDiagram
         bigint product_id PK
         varchar name UK
         varchar category
-        decimal base_price "中杯價格"
-        decimal large_extra "大杯加價"
+        decimal price_m "024：中杯價格，NULL＝不賣"
+        decimal price_l "024：大杯價格，NULL＝不賣"
+        decimal price_bottle "024：瓶裝價格，NULL＝不賣"
         tinyint hot_allowed
         text recipe_steps "做法與份量（文字）"
         enum min_view_level
@@ -49,6 +50,8 @@ erDiagram
         bigint prep_id PK
         varchar name UK
         text steps "做法（文字）"
+        tinyint on_sale "022：停售時用到它的飲品、加料一起停售"
+        varchar category "023：分類，NULL＝未分類"
     }
     prep_item_ingredient {
         bigint prep_id PK, FK
@@ -141,6 +144,8 @@ erDiagram
         bigint reported_by FK
         datetime reported_at
         decimal unit_cost "每基本單位的虛構成本，未知為 NULL"
+        tinyint on_sale "022：停售時用到它的飲品、加料一起停售"
+        varchar category "023：分類，NULL＝未分類"
     }
     %% 營業日報
     daily_shift {

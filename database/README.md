@@ -38,7 +38,7 @@ MySQL 的 DDL 不具整批回滾能力；若建表中途失敗，先檢查已完
 - 一張 `pos_order` 包含多筆 `order_item`；每筆為同商品、杯型、冰甜、加料、備註及製作狀態，`qty` 可大於 1。
 - 同筆明細一起取消或轉損耗。只取消其中一杯的功能，需先拆分明細及其加料，尚未實作。
 - `unit_price` 是含所有加料的每杯最終價。明細金額 = `qty * unit_price`；`price_at_order` 僅核對加價，不得再加一次。
-- `product.base_price` 為中杯價，大杯加 `large_extra`。額外加料每種一次；半份、雙倍未納入。
+- 飲品價格依容量分開記：`product.price_m`（中杯）、`price_l`（大杯）、`price_bottle`（瓶），NULL＝不賣這個容量（024）。額外加料每種一次；半份、雙倍未納入。
 - 珍奶配方已含一份珍珠；若額外選珍珠，需再扣一份，並再加價。
 - `recipe_json` 使用 `M`、`L` 分開列原料 ID 及每杯用量，含紙杯；這是結構化扣料資料，製作文字另放 `recipe_steps`。
 - `conflict_rule` JSON 目前只是明確範例，尚未有規則引擎，沒有啟用空泛的群組互斥規則。
@@ -181,3 +181,26 @@ INSERT INTO product_recipe (product_id, inventory_id, sort_order) SELECT 6, inve
 INSERT INTO product_recipe (product_id, prep_id, sort_order) SELECT 6, prep_id, 3 FROM prep_item WHERE name = '茶凍';
 ```
 
+
+## 停售管理、原料連動停售（022，尚未套用共用庫）
+
+`022_sale_status.sql`：`inventory`、`prep_item` 加上 `on_sale`（預設 TRUE）。原料或半成品停售時，材料清單或加料用到它的飲品、加料一起不能賣（點餐菜單不顯示、送單回 409）；半成品用到的原料停售也算半成品停售。飲品、加料自己的 `on_sale` 不會被改寫，原料恢復販售後會自動恢復。需要先執行 021。**這版後端需要 022，請先執行 022 再部署。** API 見 [docs/SALE_STATUS.md](../docs/SALE_STATUS.md)。
+
+## 原料、半成品分類（023，尚未套用共用庫）
+
+`023_material_category.sql`：`inventory`、`prep_item` 加上 `category`（文字，NULL＝未分類），停售管理頁依分類選擇。檔案裡會依名稱先分好一次（原料：包材、茶葉、底料、水果；半成品：茶湯、底料、鮮果），分不出來的留 NULL，請用檔案最後的核對查詢檢查。之後由店長、總部在停售管理頁修改。需要先執行 022。**這版後端需要 023，請先執行 023 再部署。**
+
+## 容量價格（024）、新增菜單飲品（025，尚未套用共用庫）
+
+`024_product_size_prices.sql`：每杯飲品分別記三種容量的價格 `price_m`（中杯）、`price_l`（大杯）、`price_bottle`（瓶），NULL＝這杯不賣這個容量，至少要有一種。舊飲品照原價搬過去（中杯＝`base_price`，大杯＝`base_price + large_extra`），之後刪掉 `base_price`、`large_extra`；`order_item.size` 多一個 `BOTTLE`。需要先執行 023。**這版後端需要 024，請先執行 024 再部署。**
+
+`025_menu_tea_milk.sql`：新增門市菜單的奶茶 3 杯、鮮奶 4 杯、茶類 9 杯（含蕎麥綠寶石），大杯＝菜單 L 價、瓶＝菜單瓶裝價，沒有中杯。可重複執行（同名已存在就略過）。先不建配方材料。
+
+維護範例：
+
+```sql
+-- 調價、開放中杯
+UPDATE product SET price_l = 55, price_m = 45 WHERE name = '錫蘭奶茶';
+-- 不賣瓶裝
+UPDATE product SET price_bottle = NULL WHERE name = '錫蘭奶茶';
+```
