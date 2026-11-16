@@ -13,7 +13,8 @@ public final class OrderRequests {
     public enum Source { DINE_IN, TAKE_OUT, PHONE_DELIVERY, UBER_EATS }
     // UBER_EATS 保留供舊資料相容；新收款由 Service 拒絕，應放在 Source 訂單來源。
     public enum Payment { CASH, CREDIT_CARD, LINE_PAY, UBER_EATS }
-    public enum Size { M, L }
+    /** 容量：中杯、大杯、瓶（024）。每杯飲品賣哪些容量看 product 的 price_m、price_l、price_bottle。 */
+    public enum Size { M, L, BOTTLE }
     public enum Temperature { COLD, WARM, HOT }
     public enum Sugar { NORMAL, LESS, HALF, LIGHT, NONE }
     public enum Ice { NORMAL, LESS, LIGHT, NONE }

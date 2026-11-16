@@ -157,7 +157,7 @@ try:
     api(path + "/photo", raw=body, content_type="multipart/form-data; boundary=" + boundary, expected=409)
     checks.append("signed-in employee wastage without PIN or restoration, protected photo upload/read")
 
-    db("UPDATE product SET base_price=25.15,large_extra=5.05 WHERE product_id=2;")
+    db("UPDATE product SET price_m=25.15,price_l=30.20 WHERE product_id=2;")
     db("UPDATE topping SET price=10.10 WHERE topping_id=1;")
     fractional=request(product=2, quantity=3, toppings=[1])
     fractional.update(payment="CASH", receivedCash=200.25, distance=1234.50, duration=180)

@@ -81,6 +81,13 @@ public class SecurityConfig {
                 // 盤點類型的新增、修改：只限店長、總部（查看在下面，個人帳號都可以）
                 .requestMatchers(HttpMethod.POST, "/api/inventory-counts/types").hasAnyRole("MANAGER", "HQ")
                 .requestMatchers(HttpMethod.PUT, "/api/inventory-counts/types/*").hasAnyRole("MANAGER", "HQ")
+                // 日結與報廢：原料報廢登記、每日損耗紀錄只限店員、店長的個人帳號（報廢記在員工本人名下；POS 共用帳號不行）
+                .requestMatchers(HttpMethod.POST, "/api/wastages/raw-material").hasAnyRole("STAFF", "MANAGER")
+                .requestMatchers(HttpMethod.GET, "/api/wastages/daily-summary").hasAnyRole("STAFF", "MANAGER")
+                .requestMatchers(HttpMethod.HEAD, "/api/wastages/daily-summary").hasAnyRole("STAFF", "MANAGER")
+                // 停售管理：查看與設定都只限門市 POS、店長；原料、半成品的分類（023）只限店長
+                .requestMatchers(HttpMethod.PUT, "/api/sale-status/categories").hasRole("MANAGER")
+                .requestMatchers("/api/sale-status", "/api/sale-status/**").hasAnyRole("POS", "MANAGER")
                 // 櫃台與個人帳號可查看配方，店長與總部可編輯。
                 .requestMatchers(HttpMethod.PUT, "/api/recipes/{productId:[0-9]+}").hasAnyRole("MANAGER", "HQ")
                 .requestMatchers(HttpMethod.GET, "/api/recipes", "/api/recipes/categories", "/api/recipes/{productId:[0-9]+}")

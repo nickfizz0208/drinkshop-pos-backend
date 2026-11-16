@@ -277,26 +277,36 @@ public class NewModulesIntegrationTest {
 
     @Test
     void testWastageFlow() throws Exception {
+        // POS 共用帳號不能登記原料報廢、不能看損耗紀錄（只限店員、店長的個人帳號）
+        mockMvc.perform(post("/api/wastages/raw-material")
+                        .with(login(TEST_USER, TEST_PASS))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(new RawMaterialWastageRequest(1L, new BigDecimal("1.00"), "打翻"))))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/wastages/daily-summary").with(login(TEST_USER, TEST_PASS)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(head("/api/wastages/daily-summary").with(login(TEST_USER, TEST_PASS)))
+                .andExpect(status().isForbidden());
         // 1. 原料報廢 (原料 1 號，報廢 10.00)
         RawMaterialWastageRequest wasteReq = new RawMaterialWastageRequest(1L, new BigDecimal("10.00"), "過期變質");
         mockMvc.perform(post("/api/wastages/raw-material")
-                        .with(login(TEST_USER, TEST_PASS))
+                        .with(login("opener", TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(wasteReq)))
                 .andExpect(status().isOk());
-        // 通報人是目前登入的帳號（staff_id 10），不是前端指定的人；記在原料損耗紀錄，不改盤點欄位
-        org.junit.jupiter.api.Assertions.assertEquals(10L,
+        // 通報人是目前登入的帳號（店員 opener，staff_id 11），不是前端指定的人；記在原料損耗紀錄，不改盤點欄位
+        org.junit.jupiter.api.Assertions.assertEquals(11L,
                 jdbc.queryForObject("SELECT reported_by FROM raw_material_wastage WHERE inventory_id=1", Long.class));
         // 前端多帶 staffId 想冒用別人：直接拒絕
         mockMvc.perform(post("/api/wastages/raw-material")
-                        .with(login(TEST_USER, TEST_PASS))
+                        .with(login("opener", TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"inventoryId\":1,\"wastageQty\":1,\"reason\":\"打翻\",\"staffId\":11}"))
+                        .content("{\"inventoryId\":1,\"wastageQty\":1,\"reason\":\"打翻\",\"staffId\":10}"))
                 .andExpect(status().isBadRequest());
 
         // 2. 當日報廢統計
         mockMvc.perform(get("/api/wastages/daily-summary")
-                        .with(login(TEST_USER, TEST_PASS)))
+                        .with(login("opener", TEST_PASS)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalWastedCount").exists())
                 // 損耗金額只算原料報廢（飲品不計成本，021）：中杯紙杯 10 個 × 0.80 = 8
