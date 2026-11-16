@@ -3,11 +3,12 @@ package com.example.drinkshop.controller;
 import com.example.drinkshop.dto.RecipeDtos.*;
 import com.example.drinkshop.service.RecipeService;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import java.security.Principal;
 import java.util.List;
 
-// 手機端配方查詢。只限個人帳號（POS 共用帳號不行），由 SecurityConfig 檢查；不分等級，全部上架飲品都看得到
+// 櫃台與個人帳號可查上架飲品配方，店長及總部可編輯步驟及材料份數。
 @RestController
 @RequestMapping("/api/recipes")
 public class RecipeController {
@@ -31,6 +32,13 @@ public class RecipeController {
     RecipeDetail detail(Principal principal, @PathVariable("productId") long productId, HttpServletResponse response) {
         noStore(response);
         return recipes.detail(principal.getName(), productId);
+    }
+
+    @PutMapping("/{productId}")
+    RecipeDetail update(Principal principal, @PathVariable("productId") long productId,
+                        @Valid @RequestBody UpdateRecipe update, HttpServletResponse response) {
+        noStore(response);
+        return recipes.update(principal.getName(), productId, update);
     }
 
     // 叫瀏覽器和中間的快取都不要把配方存下來

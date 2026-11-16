@@ -115,7 +115,7 @@ public class ClosingWastageRegressionTest {
     }
     private long itemId(com.fasterxml.jackson.databind.JsonNode order) { return order.get("items").get(0).get("item_id").asLong(); }
     private org.springframework.test.web.servlet.ResultActions waste(long id, String body) throws Exception {
-        return mockMvc.perform(post("/api/wastages/order-item/"+id).with(login(TEST_USER,TEST_PASS))
+        return mockMvc.perform(post("/api/wastages/order-item/"+id).with(login(POS_USER,TEST_PASS))
             .contentType(MediaType.APPLICATION_JSON).content(body));
     }
     private void raw(String body) throws Exception {
@@ -152,6 +152,9 @@ public class ClosingWastageRegressionTest {
     @Test void madeItemWasteUpdatesParentWithoutSecondDeductionOrAutomaticRefund() throws Exception {
         var order=create(com.example.drinkshop.dto.OrderRequests.Payment.CASH,false); long id=itemId(order);
         orders.changeStatus(order.get("order_id").asLong(),id,com.example.drinkshop.dto.OrderRequests.ItemStatus.MAKING,TEST_USER);
+        mockMvc.perform(post("/api/wastages/order-item/{itemId}", id).with(login(TEST_USER, TEST_PASS))
+            .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"做錯\"}"))
+            .andExpect(status().isForbidden());
         BigDecimal before=jdbc.queryForObject("SELECT book_qty FROM inventory WHERE inventory_id=1",BigDecimal.class);
         waste(id,"{\"reason\":\"做錯\"}").andExpect(status().isOk()).andExpect(jsonPath("$.status").value("WASTED"));
         waste(id,"{\"reason\":\"重試\"}").andExpect(status().isOk());

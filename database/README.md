@@ -23,7 +23,14 @@ Workbench 預設開啟 Safe Updates，會擋下 006 的 UPDATE（Error 1175）�
 5. `006_demo_ingredient_costs.sql`：新增每單位成本與八種原料假成本（本機已套用）。
 6. `007_payment_and_wastage_workbench.sql`：收款、退款與損耗欄位。僅供新庫或經團隊同意的舊庫升級，先備份並停止所有後端，需要 CREATE/ALTER ROUTINE 權限。完整升級後重跑會跳過，部分升級會在變更前停止；不要忽略錯誤繼續。不要直接執行 `007_payment_and_wastage.sql`。共用 Aiven 已建好，不執行這些 SQL。
 7. `008_member_geo_source.sql`：會員座標來源欄位，僅供本機或團隊同意後升級；不要自行對 Aiven 執行。
-8. `003_verify.sql`（選用）：檢查原始範例訂單金額、庫存及配方原料參照。
+8. `003_verify.sql`（選用，需在 021 以前執行）：檢查原始範例訂單金額、庫存及配方原料參照。
+9. `009_raw_material_wastage.sql`：原料報廢紀錄。
+10. `010-012_checklist_shift_schedule_ALL.sql`：檢查表、打卡與排班。也可以依序執行 010、011、012 三個個別檔案。
+11. 依檔名順序執行 013–020，涵蓋排班發佈、POS 職級、排班標籤及盤點。
+12. 執行 [`026_recipe_upgrade_workbench.sql`](026_recipe_upgrade_workbench.sql)。這支合併檔取代分開執行的 021 和 022。既有庫先確認 020 以前的版本，再執行合併檔。
+13. 有載入 002 示範菜單的資料庫可執行 [`027_demo_recipe_portions.sql`](027_demo_recipe_portions.sql)，補齊五款示範飲品的八筆空白材料份數。
+
+014 加入 POS 職級。櫃台登入需要有效的 POS 帳號。啟用 demo 初始化時會建立缺少的 `staff`、`manager`、`pos`，使用 `pos` 在畫面上開班。
 
 `scripts/` 裡的 Python 腳本只連本機 `127.0.0.1:3306`，不能用於雲端資料庫。
 
@@ -38,7 +45,7 @@ MySQL 的 DDL 不具整批回滾能力；若建表中途失敗，先檢查已完
 - 一張 `pos_order` 包含多筆 `order_item`；每筆為同商品、杯型、冰甜、加料、備註及製作狀態，`qty` 可大於 1。
 - 同筆明細一起取消或轉損耗。只取消其中一杯的功能，需先拆分明細及其加料，尚未實作。
 - `unit_price` 是含所有加料的每杯最終價。明細金額 = `qty * unit_price`；`price_at_order` 僅核對加價，不得再加一次。
-- 飲品價格依容量分開記：`product.price_m`（中杯）、`price_l`（大杯）、`price_bottle`（瓶），NULL＝不賣這個容量（024）。額外加料每種一次；半份、雙倍未納入。
+- 飲品價格依容量分開記：`product.price_m`（中杯）、`price_l`（大杯）、`price_bottle`（瓶），NULL＝不賣這個容量（030）。額外加料每種一次；半份、雙倍未納入。
 - 珍奶配方已含一份珍珠；若額外選珍珠，需再扣一份，並再加價。
 - `recipe_json` 使用 `M`、`L` 分開列原料 ID 及每杯用量，含紙杯；這是結構化扣料資料，製作文字另放 `recipe_steps`。
 - `conflict_rule` JSON 目前只是明確範例，尚未有規則引擎，沒有啟用空泛的群組互斥規則。
@@ -109,7 +116,7 @@ SQL 僅以獨立的 POS 資料庫為目標。
 
 `016_inventory_count.sql` 新增盤點紀錄表 `inventory_count`：每次盤點每項原料一列，保存當時的帳面數量、實點數量、差異與單位成本。同一支檔案也在 `inventory` 加上 `allow_decimal`（預設 TRUE），控制盤點時小單位能不能填小數，例如紙杯可設成只能填整數：`UPDATE inventory SET allow_decimal = FALSE WHERE name IN ('中杯紙杯', '大杯紙杯');`。盤點只記錄，不修改 `inventory.book_qty`；`inventory.reported_qty`／`reported_by`／`reported_at` 仍會更新成最新一次。
 
-須由資料庫負責人先確認升級，不可自行對 Aiven 執行。預設未啟用：升級成功後，在本機未追蹤的 `.pos-local.properties` 加上 `pos.inventory-count.enabled=true` 並重新啟動後端，盤點頁才能送出。未啟用時送出盤點會回 503，不會寫入任何資料。
+共用庫由資料庫負責人確認升級。盤點預設啟用，依賴完整的盤點結構。若設 `pos.inventory-count.enabled=false`，盤點送出回 503。
 
 ## 盤點紀錄改成表頭／明細（017，尚未套用共用庫）
 
@@ -159,16 +166,16 @@ SQL 僅以獨立的 POS 資料庫為目標。
 
 `021_recipe_tables.sql`：
 
-- **配方只記「用了哪些材料」**（`product_recipe`），不記份量；份量與做法寫在 `product.recipe_steps`（文字）。中杯、大杯共用同一份清單，紙杯不列入。拿掉 `product.recipe_json`。
+- **配方只記「用了哪些材料」**（`product_recipe`）。份量與做法寫在 `product.recipe_steps`。舊的 JSON 封存在 `product.recipe_json_legacy`，供核對舊杯型與份量。
 - **半成品** `prep_item`（例如茶凍、紅茶湯）與它用了哪些原料 `prep_item_ingredient`。配方的每一列是原料或半成品其中一個。
 - **加料** `topping` 可以指向原料或半成品；拿掉扣料量 `deduct_qty`。
 - 原料「茶凍」改成半成品，配方與加料的茶凍都改指向半成品；原料「茶凍」若有盤點或報廢紀錄則保留（見檔案最後的核對查詢）。
 - **點餐和配方分開**：點餐不讀配方，沒有配方的飲品照樣可以點；每杯不再計算原料成本（`order_item.material_cost` 之後為 NULL，舊訂單保留）。日結的損耗金額只加總原料報廢，飲品報廢只算杯數。
 - `recipe_cost_report.sql` 已停用。
 
-搬資料規則：舊 `recipe_json` 中、大杯都有的原料才列入（紙杯自然排除）；只有一種杯型的飲品則全部列入，可能含紙杯，請用核對查詢檢查。需要 009、016–020。**這版後端需要 021，請先執行 021 再部署。**
+搬資料時會解包多一層引號的配方，列出有資料的杯型共用的原料。只有一種杯型的飲品會保留該杯型全部原料，請用核對查詢檢查紙杯。需要 009、016–020。部署新版前請完成下節的配方升級。
 
-維護範例（目前只能用 SQL）：
+材料清單維護範例（SQL）：
 
 ```sql
 -- 新增半成品「紅茶湯」，由紅茶包做成
@@ -182,19 +189,45 @@ INSERT INTO product_recipe (product_id, prep_id, sort_order) SELECT 6, prep_id, 
 ```
 
 
-## 停售管理、原料連動停售（022，尚未套用共用庫）
+## 配方材料與份數升級（021–022）
 
-`022_sale_status.sql`：`inventory`、`prep_item` 加上 `on_sale`（預設 TRUE）。原料或半成品停售時，材料清單或加料用到它的飲品、加料一起不能賣（點餐菜單不顯示、送單回 409）；半成品用到的原料停售也算半成品停售。飲品、加料自己的 `on_sale` 不會被改寫，原料恢復販售後會自動恢復。需要先執行 021。**這版後端需要 022，請先執行 022 再部署。** API 見 [docs/SALE_STATUS.md](../docs/SALE_STATUS.md)。
+配方編輯版後端需要 022 的結構。由資料庫負責人備份並暫停後端，在 Workbench 同一個連線執行 [`026_recipe_upgrade_workbench.sql`](026_recipe_upgrade_workbench.sql) 整份檔案。帳號須有 `CREATE ROUTINE`、`ALTER ROUTINE`、`EXECUTE`、`CREATE TEMPORARY TABLES` 及遷移所需的表結構和資料權限。
 
-## 原料、半成品分類（023，尚未套用共用庫）
+- 尚未跑 021 時，合併檔會依序完成兩步。已完成 021 時，只補上份數欄位。已完成 022 時，會保留現有資料。
+- 保留的 021 和 022 個別檔適用於分開升級的流程。同一次升級選合併檔或個別檔其中一種。
+- 出錯時停在第一個錯誤，先核對實際結構。MySQL 的 DDL 會逐語句提交。若錯誤後留下 `migrate_recipe_021_022`，完成核對後可清除該暫用程序。
 
-`023_material_category.sql`：`inventory`、`prep_item` 加上 `category`（文字，NULL＝未分類），停售管理頁依分類選擇。檔案裡會依名稱先分好一次（原料：包材、茶葉、底料、水果；半成品：茶湯、底料、鮮果），分不出來的留 NULL，請用檔案最後的核對查詢檢查。之後由店長、總部在停售管理頁修改。需要先執行 022。**這版後端需要 023，請先執行 023 再部署。**
+份數以每項材料的獨立欄位儲存，舊配方份數留空。店長與總部帳號可在配方頁補登份數並修改製作步驟。若用 SQL 修改同一份配方，請在交易中先鎖定對應的 `product` 資料列，以和網站編輯使用同一把鎖。
 
-## 容量價格（024）、新增菜單飲品（025，尚未套用共用庫）
+027 依 `002_demo_data.sql`，將五款示範飲品的八筆材料空白份數填為 1。已填寫的份數與其他配方材料保留原值。
 
-`024_product_size_prices.sql`：每杯飲品分別記三種容量的價格 `price_m`（中杯）、`price_l`（大杯）、`price_bottle`（瓶），NULL＝這杯不賣這個容量，至少要有一種。舊飲品照原價搬過去（中杯＝`base_price`，大杯＝`base_price + large_extra`），之後刪掉 `base_price`、`large_extra`；`order_item.size` 多一個 `BOTTLE`。需要先執行 023。**這版後端需要 024，請先執行 024 再部署。**
+## 停售、分類、容量價格（028～031）
 
-`025_menu_tea_milk.sql`：新增門市菜單的奶茶 3 杯、鮮奶 4 杯、茶類 9 杯（含蕎麥綠寶石），大杯＝菜單 L 價、瓶＝菜單瓶裝價，沒有中杯。可重複執行（同名已存在就略過）。先不建配方材料。
+> 這四支原本編號 022～025，2026-11-16 合併 `codex/team-integration` 時改號（和組員的 `022_recipe_portions.sql` 撞號），內容沒有改。**已經執行過的不用再跑。**
+>
+> 共用庫狀態：`product` 已經沒有 `base_price`，代表 030（以及它之前的 028、029）已套用；031（新增 16 杯飲品）請資料庫負責人用下面的查詢確認。這版後端需要 028～030 都完成。
+>
+> ```sql
+> SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
+>  WHERE TABLE_SCHEMA = 'drinkshop_pos'
+>    AND ((TABLE_NAME IN ('inventory', 'prep_item') AND COLUMN_NAME IN ('on_sale', 'category'))
+>      OR (TABLE_NAME = 'product' AND COLUMN_NAME IN ('price_m', 'base_price')));   -- 028、029、030
+> SELECT COUNT(*) FROM product WHERE name IN ('錫蘭奶茶', '紅茶拿鐵', '蕎麥綠寶石');  -- 031：3＝已套用
+> ```
+
+### 停售管理、原料連動停售（028）
+
+`028_sale_status.sql`：`inventory`、`prep_item` 加上 `on_sale`（預設 TRUE）。原料或半成品停售時，材料清單或加料用到它的飲品、加料一起不能賣（點餐菜單不顯示、送單回 409）；半成品用到的原料停售也算半成品停售。飲品、加料自己的 `on_sale` 不會被改寫，原料恢復販售後會自動恢復。需要先執行 021。 API 見 [docs/SALE_STATUS.md](../docs/SALE_STATUS.md)。
+
+### 原料、半成品分類（029）
+
+`029_material_category.sql`：`inventory`、`prep_item` 加上 `category`（文字，NULL＝未分類），停售管理頁依分類選擇。檔案裡會依名稱先分好一次（原料：包材、茶葉、底料、水果；半成品：茶湯、底料、鮮果），分不出來的留 NULL，請用檔案最後的核對查詢檢查。之後由店長、總部在停售管理頁修改。需要先執行 028。
+
+### 容量價格（030）、新增菜單飲品（031）
+
+`030_product_size_prices.sql`：每杯飲品分別記三種容量的價格 `price_m`（中杯）、`price_l`（大杯）、`price_bottle`（瓶），NULL＝這杯不賣這個容量，至少要有一種。舊飲品照原價搬過去（中杯＝`base_price`，大杯＝`base_price + large_extra`），之後刪掉 `base_price`、`large_extra`；`order_item.size` 多一個 `BOTTLE`。需要先執行 029。
+
+`031_menu_tea_milk.sql`：新增門市菜單的奶茶 3 杯、鮮奶 4 杯、茶類 9 杯（含蕎麥綠寶石），大杯＝菜單 L 價、瓶＝菜單瓶裝價，沒有中杯。可重複執行（同名已存在就略過）。先不建配方材料。
 
 維護範例：
 

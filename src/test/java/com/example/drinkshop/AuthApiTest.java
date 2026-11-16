@@ -74,8 +74,7 @@ class AuthApiTest {
         String token = login("a_pos", PASSWORD);
         mvc.perform(get("/api/auth/me").header("Authorization", "Bearer " + token))
             .andExpect(status().isOk()).andExpect(jsonPath("$.staffId").value(901));
-        // 職級規則照舊：POS 帳號不能看配方
-        mvc.perform(get("/api/recipes").header("Authorization", "Bearer " + token)).andExpect(status().isForbidden());
+        mvc.perform(get("/api/recipes").header("Authorization", "Bearer " + token)).andExpect(status().isOk());
     }
 
     @Test void wrongPasswordUnknownAndDisabledAccountsGetSameMessage() throws Exception {

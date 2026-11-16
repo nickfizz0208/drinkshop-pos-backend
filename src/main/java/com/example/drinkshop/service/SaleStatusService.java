@@ -10,7 +10,7 @@ import java.util.*;
 import static com.example.drinkshop.repository.PosRepository.flag;
 
 /**
- * 停售管理（022）：飲品、加料、原料、半成品都可以停售。
+ * 停售管理（028）：飲品、加料、原料、半成品都可以停售。
  * 原料或半成品停售時，用到它的飲品與加料一起不能賣（點餐菜單不顯示、送單會擋）；
  * 飲品、加料自己的停售狀態不會被改寫，所以原料恢復販售後它們會自動恢復。
  */
@@ -110,7 +110,7 @@ public class SaleStatusService {
         return status();
     }
 
-    /** 改一項原料或半成品的分類（023）。前後空白去掉，空白＝未分類。 */
+    /** 改一項原料或半成品的分類（029）。前後空白去掉，空白＝未分類。 */
     @Transactional
     public SaleStatus updateCategory(CategoryChange change) {
         String category = change.category() == null || change.category().isBlank() ? null : change.category().trim();

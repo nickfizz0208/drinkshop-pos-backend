@@ -251,7 +251,7 @@ class ScheduleApiTest {
     void entryTagsAreSavedPublishedAndCopied() throws Exception {
         // 多個標籤：去重、依編號排序；時間必填
         asManager(post("/api/schedule/entries"), "{\"workDate\":\"2026-11-03\",\"staffId\":10,\"startTime\":\"08:00\",\"endTime\":\"16:00\",\"tagIds\":[4,1,4]}")
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.entry.tagIds[0]").value(1))
                 .andExpect(jsonPath("$.entry.tagIds[1]").value(4))
                 .andExpect(jsonPath("$.entry.tagNames[0]").value("開班"))
@@ -264,7 +264,7 @@ class ScheduleApiTest {
                 .andExpect(status().isBadRequest());
         // 沒有標籤也可以
         asManager(post("/api/schedule/entries"), "{\"workDate\":\"2026-11-03\",\"staffId\":11,\"startTime\":\"16:00\",\"endTime\":\"22:00\"}")
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.entry.tagIds", hasSize(0)));
 
         // 發布後員工看得到標籤

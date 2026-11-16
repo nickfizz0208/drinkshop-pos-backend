@@ -69,6 +69,7 @@ public class SecurityConfig {
                 .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**", "/v3/api-docs.yaml").permitAll()
                 // 刪除會員：只限店長、總部（MemberService 也會再檢查一次）
                 .requestMatchers(HttpMethod.DELETE, "/api/members/*").hasAnyRole("MANAGER", "HQ")
+                .requestMatchers(HttpMethod.POST, "/api/wastages/order-item/*").hasRole("POS")
                 // 櫃台作業只限門市 POS 共用帳號：日結、訂單、會員、外送路線、上下班打卡、目前在班。
                 // 嚴格比對 POS，店長、總部用個人帳號也不行，要到 POS 機上操作。
                 .requestMatchers("/api/daily-shifts", "/api/daily-shifts/**",
@@ -80,15 +81,21 @@ public class SecurityConfig {
                 // 盤點類型的新增、修改：只限店長、總部（查看在下面，個人帳號都可以）
                 .requestMatchers(HttpMethod.POST, "/api/inventory-counts/types").hasAnyRole("MANAGER", "HQ")
                 .requestMatchers(HttpMethod.PUT, "/api/inventory-counts/types/*").hasAnyRole("MANAGER", "HQ")
-                // 日結與報廢：原料報廢登記、每日損耗紀錄只限店員、店長的個人帳號（報廢記在員工本人名下；POS 共用帳號不行）
+                // 原料報廢回報：原料報廢登記、每日損耗紀錄只限店員、店長的個人帳號（報廢記在員工本人名下；POS 共用帳號不行）
                 .requestMatchers(HttpMethod.POST, "/api/wastages/raw-material").hasAnyRole("STAFF", "MANAGER")
                 .requestMatchers(HttpMethod.GET, "/api/wastages/daily-summary").hasAnyRole("STAFF", "MANAGER")
-                // 停售管理：查看與設定都只限門市 POS、店長；原料、半成品的分類（023）只限店長
+                // 停售管理：查看與設定都只限門市 POS、店長；原料、半成品的分類（029）只限店長
                 .requestMatchers(HttpMethod.PUT, "/api/sale-status/categories").hasRole("MANAGER")
                 .requestMatchers("/api/sale-status", "/api/sale-status/**").hasAnyRole("POS", "MANAGER")
-                // 個人帳號才能用，POS 共用帳號不行：自己的打卡紀錄（修改、刪除再由 ShiftStaffService 限店長、總部）、查看配方、原料盤點
-                // 原料盤點也只限個人帳號：經手人要是員工本人
-                .requestMatchers("/api/shift-staff", "/api/shift-staff/**", "/api/recipes", "/api/recipes/**",
+                // 櫃台與個人帳號可查看配方，店長與總部可編輯。
+                .requestMatchers(HttpMethod.PUT, "/api/recipes/{productId:[0-9]+}").hasAnyRole("MANAGER", "HQ")
+                .requestMatchers(HttpMethod.GET, "/api/recipes", "/api/recipes/categories", "/api/recipes/{productId:[0-9]+}")
+                    .hasAnyRole("POS", "TRAINEE", "STAFF", "MANAGER", "HQ")
+                .requestMatchers(HttpMethod.HEAD, "/api/recipes", "/api/recipes/categories", "/api/recipes/{productId:[0-9]+}")
+                    .hasAnyRole("POS", "TRAINEE", "STAFF", "MANAGER", "HQ")
+                .requestMatchers("/api/recipes", "/api/recipes/**").denyAll()
+                // 打卡紀錄與盤點保留個人帳號權限。
+                .requestMatchers("/api/shift-staff", "/api/shift-staff/**",
                     "/api/inventory-counts", "/api/inventory-counts/**")
                     .hasAnyRole("TRAINEE", "STAFF", "MANAGER", "HQ")
                 .requestMatchers("/api/**").authenticated()

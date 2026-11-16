@@ -1,6 +1,6 @@
-# 停售管理 API（022）
+# 停售管理 API（028）
 
-需要先執行 `database/022_sale_status.sql`、`database/023_material_category.sql`。
+需要先執行 `database/028_sale_status.sql`、`database/029_material_category.sql`。
 
 ## 規則
 
@@ -36,7 +36,7 @@
 }
 ```
 
-## `PUT /api/sale-status/categories`（023）
+## `PUT /api/sale-status/categories`（029）
 
 只限店長。改一項原料或半成品的分類；分類是文字（最多 20 字），空白＝未分類。回傳更新後的完整狀態。
 
