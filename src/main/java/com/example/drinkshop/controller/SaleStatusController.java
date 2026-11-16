@@ -6,7 +6,7 @@ import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * 停售管理（022）。查看：登入即可；停售：門市 POS、店長、總部；改分類（023）：店長、總部（SecurityConfig 檢查）。
+ * 停售管理（022）。查看與停售：門市 POS、店長；改分類（023）：店長（SecurityConfig 檢查）。
  * 原料、半成品停售時，用到它的飲品與加料會一起停售；恢復販售時一起恢復。
  */
 @RestController
@@ -23,7 +23,7 @@ public class SaleStatusController {
     @PutMapping
     SaleStatus update(@Valid @RequestBody Update request) { return sale.update(request); }
 
-    // PUT /api/sale-status/categories：{"kind":"INVENTORY","id":6,"category":"底料"}，只限店長、總部
+    // PUT /api/sale-status/categories：{"kind":"INVENTORY","id":6,"category":"底料"}，只限店長
     @PutMapping("/categories")
     SaleStatus category(@Valid @RequestBody CategoryChange request) { return sale.updateCategory(request); }
 }

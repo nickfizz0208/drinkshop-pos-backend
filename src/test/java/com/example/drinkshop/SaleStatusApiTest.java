@@ -57,6 +57,7 @@ class SaleStatusApiTest {
         addStaff(30,"s_pos","門市 POS","POS");
         addStaff(31,"s_staff","店員小華","STAFF");
         addStaff(32,"s_manager","店長","MANAGER");
+        addStaff(33,"s_hq","總部","HQ");
     }
     private void addStaff(long id,String username,String name,String level) {
         jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (?,?,?,?,?,TRUE)",
@@ -71,9 +72,12 @@ class SaleStatusApiTest {
     }
 
     @Test
-    void anyoneLoggedInCanViewWithLinks() throws Exception {
+    void onlyPosAndManagerCanViewWithLinks() throws Exception {
         mvc.perform(get("/api/sale-status")).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/sale-status").with(login("s_staff",PASSWORD)))
+        mvc.perform(get("/api/sale-status").with(login("s_staff",PASSWORD))).andExpect(status().isForbidden());
+        mvc.perform(get("/api/sale-status").with(login("s_hq",PASSWORD))).andExpect(status().isForbidden());
+        mvc.perform(get("/api/sale-status").with(login("s_manager",PASSWORD))).andExpect(status().isOk());
+        mvc.perform(get("/api/sale-status").with(login("s_pos",PASSWORD)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.inventories[?(@.inventoryId==6)].usedByProducts[*]",contains(4)))
             .andExpect(jsonPath("$.inventories[?(@.inventoryId==6)].usedByToppings[*]",contains(1)))
@@ -85,8 +89,9 @@ class SaleStatusApiTest {
     }
 
     @Test
-    void onlyPosManagerAndHqCanChange() throws Exception {
+    void onlyPosAndManagerCanChange() throws Exception {
         put("s_staff","{\"inventories\":[{\"id\":6,\"onSale\":false}]}").andExpect(status().isForbidden());
+        put("s_hq","{\"inventories\":[{\"id\":6,\"onSale\":false}]}").andExpect(status().isForbidden());
         assertTrue(onSale("inventory","inventory_id",6));
         put("s_manager","{\"inventories\":[{\"id\":6,\"onSale\":false}]}").andExpect(status().isOk());
         assertFalse(onSale("inventory","inventory_id",6));
@@ -160,6 +165,8 @@ class SaleStatusApiTest {
         String body="{\"kind\":\"INVENTORY\",\"id\":8,\"category\":\" 水果 \"}";
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/sale-status/categories")
             .with(login("s_pos",PASSWORD)).contentType("application/json").content(body)).andExpect(status().isForbidden());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/sale-status/categories")
+            .with(login("s_hq",PASSWORD)).contentType("application/json").content(body)).andExpect(status().isForbidden());
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/sale-status/categories")
             .with(login("s_manager",PASSWORD)).contentType("application/json").content(body))
             .andExpect(status().isOk())
