@@ -85,7 +85,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/wastages/raw-material").hasAnyRole("STAFF", "MANAGER")
                 .requestMatchers(HttpMethod.GET, "/api/wastages/daily-summary").hasAnyRole("STAFF", "MANAGER")
                 .requestMatchers(HttpMethod.HEAD, "/api/wastages/daily-summary").hasAnyRole("STAFF", "MANAGER")
-                // 停售管理：查看與設定都只限門市 POS、店長；原料、半成品的分類（023）只限店長
+                // 停售管理：查看與設定都只限門市 POS、店長；原料、半成品的分類（029）只限店長
                 .requestMatchers(HttpMethod.PUT, "/api/sale-status/categories").hasRole("MANAGER")
                 .requestMatchers("/api/sale-status", "/api/sale-status/**").hasAnyRole("POS", "MANAGER")
                 // 櫃台與個人帳號可查看配方，店長與總部可編輯。

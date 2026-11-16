@@ -17,11 +17,11 @@ INSERT INTO inventory (inventory_id,name,base_unit,pack_unit,per_pack,book_qty,s
  (6,'珍珠','份',NULL,NULL,100,20),
  (7,'茶凍','份',NULL,NULL,100,20),
  (8,'芒果冰沙料','份',NULL,NULL,8,10);
--- 023：原料分類（芒果冰沙料留空＝未分類）
+-- 029：原料分類（芒果冰沙料留空＝未分類）
 UPDATE inventory SET category=CASE WHEN inventory_id IN (1,2) THEN '包材' WHEN inventory_id IN (3,4) THEN '茶葉' WHEN inventory_id IN (5,6,7) THEN '底料' END WHERE inventory_id BETWEEN 1 AND 7;
 
 -- 021：配方只記材料清單（中大杯共用、不含紙杯），份量寫在 recipe_steps；茶凍是半成品
--- 024：容量價格 price_m（中杯）、price_l（大杯）、price_bottle（瓶，NULL＝不賣）
+-- 030：容量價格 price_m（中杯）、price_l（大杯）、price_bottle（瓶，NULL＝不賣）
 INSERT INTO product (product_id,name,category,price_m,price_l,price_bottle,hot_allowed,recipe_steps,min_view_level) VALUES
  (1,'經典紅茶','茶類',25,30,NULL,TRUE,'依杯型備杯，加入紅茶，依客製甜度與冰量調製。','TRAINEE'),
  (2,'茉香綠茶','茶類',25,30,NULL,TRUE,'依杯型備杯，加入綠茶，依客製甜度與冰量調製。','TRAINEE'),

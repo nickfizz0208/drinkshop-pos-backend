@@ -329,7 +329,7 @@ class PosIntegrationTest {
     }
 
     @Test void sizePricesComeFromProductAndUnsoldSizeIsRejected() throws Exception {
-        // 024：只賣大杯與瓶裝的飲品（沒有中杯）
+        // 030：只賣大杯與瓶裝的飲品（沒有中杯）
         jdbc.update("UPDATE product SET price_m=NULL,price_l=50,price_bottle=75 WHERE product_id=3");
         mvc.perform(get("/api/menu").with(login("test_staff",PASSWORD)))
             .andExpect(jsonPath("$.products[2].price_m").value(org.hamcrest.Matchers.nullValue()))

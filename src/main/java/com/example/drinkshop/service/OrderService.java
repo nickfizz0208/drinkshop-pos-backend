@@ -68,7 +68,7 @@ public class OrderService {
         for (Item item:request.items()) {
             var product=repo.product(item.productId());
             rules.validate(item,product);
-            // 原料或半成品停售（022）：用到它的飲品一起停售
+            // 原料或半成品停售（028）：用到它的飲品一起停售
             var stopped=sale.stoppedMaterialsOfProduct(item.productId());
             if (!stopped.isEmpty()) throw ApiException.conflict("「"+product.get("name")+"」已停售（"+String.join("、",stopped)+" 停售）");
             BigDecimal price=sizePrice(product,item.size());
@@ -113,7 +113,7 @@ public class OrderService {
         return repo.detail(orderId);
     }
 
-    // 這杯飲品這個容量的價格（024）；沒有賣這個容量就擋下，不會用其他容量的價格代替。
+    // 這杯飲品這個容量的價格（030）；沒有賣這個容量就擋下，不會用其他容量的價格代替。
     private static BigDecimal sizePrice(Map<String,Object> product,Size size) {
         String column=switch(size) { case M -> "price_m"; case L -> "price_l"; case BOTTLE -> "price_bottle"; };
         if (product.get(column)==null) {

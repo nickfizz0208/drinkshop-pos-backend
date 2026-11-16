@@ -6,7 +6,7 @@ import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * 停售管理（022）。查看與停售：門市 POS、店長；改分類（023）：店長（SecurityConfig 檢查）。
+ * 停售管理（028）。查看與停售：門市 POS、店長；改分類（029）：店長（SecurityConfig 檢查）。
  * 原料、半成品停售時，用到它的飲品與加料會一起停售；恢復販售時一起恢復。
  */
 @RestController

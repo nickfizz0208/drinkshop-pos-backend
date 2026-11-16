@@ -29,7 +29,7 @@ pos.demo.password=<見共用文件>
 - 共用文件請設為僅限組員檢視。
 - 資料庫名稱是 `drinkshop_pos`，不是 Aiven 預設的 `defaultdb`。
 - `pos.demo.enabled=true` 會建立缺少的 `staff`、`manager`、`pos` 測試帳號。用 `pos` 登入後，在畫面上選擇開班人員。
-- 啟動整合版前，請確認資料庫結構已升級至 022。共用庫的升級由資料庫負責人執行。見 [database/README.md](database/README.md)。
+- 啟動整合版前，請確認資料庫已具備 028–031 對應的結構與菜單。共用庫的升級由資料庫負責人執行。見 [database/README.md](database/README.md)。
 - 未建立 `.pos-local.properties` 時，程式會改連本機 `localhost:3306/drinkshop_pos`。
 
 ## 啟動與測試

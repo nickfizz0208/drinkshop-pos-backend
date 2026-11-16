@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-// 停售管理（022）。測試資料 data-h2.sql：
+// 停售管理（028）。測試資料 data-h2.sql：
 //   原料 3 紅茶包（經典紅茶、經典奶茶、珍珠奶茶，以及半成品 1 茶凍）、6 珍珠（珍珠奶茶、加料 1 珍珠）
 //   半成品 1 茶凍（由紅茶包做成；加料 2 茶凍）
 @SpringBootTest(properties={

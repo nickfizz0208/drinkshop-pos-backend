@@ -7,14 +7,14 @@ import jakarta.validation.constraints.Size;
 import java.util.List;
 
 /**
- * 停售管理 API 的請求與回應（022）。
+ * 停售管理 API 的請求與回應（028）。
  * onSale 是「這一項自己有沒有停售」；sellable 是「現在實際能不能賣」：
  * 自己販售中，而且用到的原料、半成品都沒有停售。原料恢復販售後，因它停售的品項會自動恢復。
  */
 public final class SaleStatusDtos {
     private SaleStatusDtos() {}
 
-    /** 原料。category 是分類（023，null＝未分類）；usedByProducts／usedByToppings：直接或透過半成品用到它的飲品、加料編號。 */
+    /** 原料。category 是分類（029，null＝未分類）；usedByProducts／usedByToppings：直接或透過半成品用到它的飲品、加料編號。 */
     public record InventoryStatus(long inventoryId, String name, String category, boolean onSale,
                                   List<Long> usedByProducts, List<Long> usedByToppings) {}
 
@@ -36,7 +36,7 @@ public final class SaleStatusDtos {
     /** 原料或半成品的分類種類。 */
     public enum MaterialKind { INVENTORY, PREP }
 
-    /** 改一項原料或半成品的分類（023）；category 空白＝未分類。 */
+    /** 改一項原料或半成品的分類（029）；category 空白＝未分類。 */
     public record CategoryChange(@NotNull MaterialKind kind, @NotNull @Positive Long id,
                                  @Size(max = 20, message = "分類最多 20 個字") String category) {}
 
