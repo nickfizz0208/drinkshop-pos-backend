@@ -42,6 +42,15 @@ public class ShiftStaffController {
         return service.mine(month, principal.getName());
     }
 
+    /** GET /api/shift-staff/monthly?month=YYYY-MM&staffId=...：店長查詢某月份打卡紀錄（可指定特定員工，未指定查全員） */
+    @GetMapping("/monthly")
+    List<Response> monthly(@RequestParam(name = "month", required = false)
+                           @DateTimeFormat(pattern = "yyyy-MM") java.time.YearMonth month,
+                           @RequestParam(name = "staffId", required = false) Long staffId,
+                           Principal principal) {
+        return service.monthly(month, staffId, principal.getName());
+    }
+
     /** GET /api/shift-staff/on-duty：目前在班的人（checklist 選人用） */
     @GetMapping("/on-duty")
     List<Response> onDuty() { return service.onDuty(); }

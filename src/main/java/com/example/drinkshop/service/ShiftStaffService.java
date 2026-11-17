@@ -1,5 +1,6 @@
 package com.example.drinkshop.service;
 
+import com.example.drinkshop.entity.DailyShift;
 import com.example.drinkshop.dto.ShiftStaffDtos.Response;
 import com.example.drinkshop.dto.ShiftStaffDtos.Update;
 import com.example.drinkshop.entity.ShiftStaff;
@@ -8,6 +9,7 @@ import com.example.drinkshop.exception.ApiException;
 import com.example.drinkshop.repository.DailyShiftRepository;
 import com.example.drinkshop.repository.PosRepository;
 import com.example.drinkshop.repository.ShiftStaffRepository;
+import com.example.drinkshop.repository.StaffScheduleRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,16 +34,24 @@ public class ShiftStaffService {
 
     private final ShiftStaffRepository shiftStaff;
     private final DailyShiftRepository shifts;
+    private final StaffScheduleRepository schedules;
     private final OrderService orders;
     private final PosRepository pos;
     private final Clock clock;
 
     public ShiftStaffService(ShiftStaffRepository shiftStaff, DailyShiftRepository shifts,
-                             OrderService orders, PosRepository pos, Clock clock) {
-        this.shiftStaff = shiftStaff; this.shifts = shifts; this.orders = orders; this.pos = pos; this.clock = clock;
+            StaffScheduleRepository schedules, OrderService orders, PosRepository pos, Clock clock) {
+        this.shiftStaff = shiftStaff;
+        this.shifts = shifts;
+        this.schedules = schedules;
+        this.orders = orders;
+        this.pos = pos;
+        this.clock = clock;
     }
 
-    public LocalDate today() { return LocalDate.now(clock); }
+    public LocalDate today() {
+        return LocalDate.now(clock);
+    }
 
     // ---------- 打卡 ----------
 
@@ -48,7 +59,8 @@ public class ShiftStaffService {
         requireActiveStaff(staffId);
         var date = today();
         var shift = shifts.findById(date).orElseThrow(() -> ApiException.conflict("今天還沒開班，不能打卡上班"));
-        if (!"OPEN".equalsIgnoreCase(shift.getStatus())) throw ApiException.conflict("今天已經關班，不能打卡上班");
+        if (!"OPEN".equalsIgnoreCase(shift.getStatus()))
+            throw ApiException.conflict("今天已經關班，不能打卡上班");
         if (shiftStaff.existsByBusinessDateAndStaffIdAndClockOutAtIsNull(date, staffId))
             throw ApiException.conflict("這位員工已經在班，請先打卡下班");
         return toResponse(shiftStaff.saveAndFlush(new ShiftStaff(date, staffId, LocalDateTime.now(clock))));
@@ -56,7 +68,7 @@ public class ShiftStaffService {
 
     public Response clockOut(long staffId) {
         var record = shiftStaff.findFirstByBusinessDateAndStaffIdAndClockOutAtIsNull(today(), staffId)
-            .orElseThrow(() -> ApiException.conflict("這位員工目前不在班"));
+                .orElseThrow(() -> ApiException.conflict("這位員工目前不在班"));
         record.setClockOutAt(LocalDateTime.now(clock));
         return toResponse(shiftStaff.saveAndFlush(record));
     }
@@ -67,7 +79,7 @@ public class ShiftStaffService {
     @Transactional(readOnly = true)
     public List<Response> onDuty() {
         return shiftStaff.findByBusinessDateAndClockOutAtIsNullOrderByClockInAtAsc(today())
-            .stream().map(this::toResponse).toList();
+                .stream().map(this::toResponse).toList();
     }
 
     /** 某營業日的打卡紀錄（不填為今天）。店長看全部，其他人只看自己的。 */
@@ -76,8 +88,8 @@ public class ShiftStaffService {
         var viewer = orders.actor(username);
         boolean manager = MANAGER_LEVELS.contains(viewer.level());
         return shiftStaff.findByBusinessDateOrderByClockInAtAsc(date == null ? today() : date).stream()
-            .filter(s -> manager || s.getStaffId().equals(viewer.id()))
-            .map(this::toResponse).toList();
+                .filter(s -> manager || s.getStaffId().equals(viewer.id()))
+                .map(this::toResponse).toList();
     }
 
     /** 自己某個月的打卡紀錄（我的紀錄）。 */
@@ -86,7 +98,22 @@ public class ShiftStaffService {
         var me = orders.actor(username);
         var m = month == null ? java.time.YearMonth.from(today()) : month;
         return shiftStaff.findByStaffIdAndBusinessDateBetweenOrderByClockInAtAsc(me.id(), m.atDay(1), m.atEndOfMonth())
-            .stream().map(this::toResponse).toList();
+                .stream().map(this::toResponse).toList();
+    }
+
+    /** 店長查詢某月份打卡紀錄（可指定特定員工，未指定查全員）。 */
+    @Transactional(readOnly = true)
+    public List<Response> monthly(java.time.YearMonth month, Long staffId, String username) {
+        requireManager(username);
+        var m = month == null ? java.time.YearMonth.from(today()) : month;
+        LocalDate from = m.atDay(1), to = m.atEndOfMonth();
+        List<ShiftStaff> records;
+        if (staffId != null) {
+            records = shiftStaff.findByStaffIdAndBusinessDateBetweenOrderByClockInAtAsc(staffId, from, to);
+        } else {
+            records = shiftStaff.findByBusinessDateBetweenOrderByBusinessDateAscClockInAtAsc(from, to);
+        }
+        return records.stream().map(this::toResponse).toList();
     }
 
     /** 打卡頁：今天開班狀態＋今天的紀錄。店長看全部；其他人只看「在班中的人」和自己的紀錄。 */
@@ -97,8 +124,8 @@ public class ShiftStaffService {
         var date = today();
         String status = shifts.findById(date).map(s -> s.getStatus().toUpperCase()).orElse("NONE");
         var records = shiftStaff.findByBusinessDateOrderByClockInAtAsc(date).stream()
-            .filter(s -> manager || s.getClockOutAt() == null || s.getStaffId().equals(viewer.id()))
-            .map(this::toResponse).toList();
+                .filter(s -> manager || s.getClockOutAt() == null || s.getStaffId().equals(viewer.id()))
+                .map(this::toResponse).toList();
         return new com.example.drinkshop.dto.ShiftStaffDtos.Today(date, status, records, manager);
     }
 
@@ -117,7 +144,8 @@ public class ShiftStaffService {
             throw ApiException.bad("下班時間不能早於上班時間");
         // 改回「還在班」時，不能跟同一人同一天另一筆在班紀錄重複
         if (request.clockOutAt() == null && record.getClockOutAt() != null
-                && shiftStaff.existsByBusinessDateAndStaffIdAndClockOutAtIsNull(record.getBusinessDate(), record.getStaffId()))
+                && shiftStaff.existsByBusinessDateAndStaffIdAndClockOutAtIsNull(record.getBusinessDate(),
+                        record.getStaffId()))
             throw ApiException.conflict("這位員工已經有一筆在班紀錄");
         record.setClockInAt(request.clockInAt());
         record.setClockOutAt(request.clockOutAt());
@@ -134,10 +162,18 @@ public class ShiftStaffService {
     // ---------- 共用（checklist 也會用到） ----------
 
     /** 店長、總部。 */
-    public boolean isManager(Staff staff) { return MANAGER_LEVELS.contains(staff.level()); }
+    public boolean isManager(Staff staff) {
+        return MANAGER_LEVELS.contains(staff.level());
+    }
+
     /** 門市 POS 機的共用帳號。 */
-    public static boolean isPos(Staff staff) { return "POS".equals(staff.level()); }
-    public Staff actor(String username) { return orders.actor(username); }
+    public static boolean isPos(Staff staff) {
+        return "POS".equals(staff.level());
+    }
+
+    public Staff actor(String username) {
+        return orders.actor(username);
+    }
 
     public Staff requireManager(String username) {
         var staff = orders.actor(username);
@@ -149,8 +185,10 @@ public class ShiftStaffService {
     /** 員工必須存在且在職；不會預設成其他人。 */
     public void requireActiveStaff(long staffId) {
         var rows = staffRow(staffId);
-        if (rows.isEmpty()) throw ApiException.bad("找不到這位員工");
-        if (!PosRepository.flag(rows.get(0), "active")) throw ApiException.bad("這位員工已停用");
+        if (rows.isEmpty())
+            throw ApiException.bad("找不到這位員工");
+        if (!PosRepository.flag(rows.get(0), "active"))
+            throw ApiException.bad("這位員工已停用");
     }
 
     public String staffName(long staffId) {
@@ -166,8 +204,29 @@ public class ShiftStaffService {
         return shiftStaff.findById(id).orElseThrow(() -> ApiException.missing("找不到這筆打卡紀錄"));
     }
 
+    private String determineCloseType(ShiftStaff s, DailyShift shift) {
+        if (s.getClockOutAt() == null)
+            return null;
+        if (s.getUpdatedBy() != null)
+            return "MANAGER";
+        var time = s.getClockOutAt().toLocalTime();
+        if (time.getHour() == 23 && time.getMinute() == 59 && time.getSecond() == 59) {
+            return "AUTO_MIDNIGHT";
+        }
+        if (shift != null && shift.getClosedAt() != null && s.getClockOutAt().equals(shift.getClosedAt())) {
+            return "AUTO_SHIFT_CLOSE";
+        }
+        return "SELF";
+    }
+
     private Response toResponse(ShiftStaff s) {
+        var shift = shifts.findById(s.getBusinessDate()).orElse(null);
+        String closeType = determineCloseType(s, shift);
+        var schedList = schedules.findByWorkDateAndStaffId(s.getBusinessDate(), s.getStaffId());
+        LocalTime schedStart = schedList.isEmpty() ? null : schedList.get(0).getStartTime();
+        LocalTime schedEnd = schedList.isEmpty() ? null : schedList.get(0).getEndTime();
         return new Response(s.getId(), s.getBusinessDate(), s.getStaffId(), staffName(s.getStaffId()),
-            s.getClockInAt(), s.getClockOutAt(), s.getClockOutAt() == null, s.getUpdatedBy(), s.getUpdatedAt());
+                s.getClockInAt(), s.getClockOutAt(), s.getClockOutAt() == null, s.getUpdatedBy(), s.getUpdatedAt(),
+                schedStart, schedEnd, closeType);
     }
 }
