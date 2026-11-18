@@ -78,8 +78,7 @@ public class ShiftStaffService {
     /** 目前在班的人（今天、還沒打卡下班）。 */
     @Transactional(readOnly = true)
     public List<Response> onDuty() {
-        return shiftStaff.findByBusinessDateAndClockOutAtIsNullOrderByClockInAtAsc(today())
-                .stream().map(this::toResponse).toList();
+        return toResponses(shiftStaff.findByBusinessDateAndClockOutAtIsNullOrderByClockInAtAsc(today()));
     }
 
     /** 某營業日的打卡紀錄（不填為今天）。店長看全部，其他人只看自己的。 */
@@ -87,9 +86,10 @@ public class ShiftStaffService {
     public List<Response> list(LocalDate date, String username) {
         var viewer = orders.actor(username);
         boolean manager = MANAGER_LEVELS.contains(viewer.level());
-        return shiftStaff.findByBusinessDateOrderByClockInAtAsc(date == null ? today() : date).stream()
+        var filtered = shiftStaff.findByBusinessDateOrderByClockInAtAsc(date == null ? today() : date).stream()
                 .filter(s -> manager || s.getStaffId().equals(viewer.id()))
-                .map(this::toResponse).toList();
+                .toList();
+        return toResponses(filtered);
     }
 
     /** 自己某個月的打卡紀錄（我的紀錄）。 */
@@ -97,8 +97,7 @@ public class ShiftStaffService {
     public List<Response> mine(java.time.YearMonth month, String username) {
         var me = orders.actor(username);
         var m = month == null ? java.time.YearMonth.from(today()) : month;
-        return shiftStaff.findByStaffIdAndBusinessDateBetweenOrderByClockInAtAsc(me.id(), m.atDay(1), m.atEndOfMonth())
-                .stream().map(this::toResponse).toList();
+        return toResponses(shiftStaff.findByStaffIdAndBusinessDateBetweenOrderByClockInAtAsc(me.id(), m.atDay(1), m.atEndOfMonth()));
     }
 
     /** 店長查詢某月份打卡紀錄（可指定特定員工，未指定查全員）。 */
@@ -113,7 +112,7 @@ public class ShiftStaffService {
         } else {
             records = shiftStaff.findByBusinessDateBetweenOrderByBusinessDateAscClockInAtAsc(from, to);
         }
-        return records.stream().map(this::toResponse).toList();
+        return toResponses(records);
     }
 
     /** 打卡頁：今天開班狀態＋今天的紀錄。店長看全部；其他人只看「在班中的人」和自己的紀錄。 */
@@ -123,10 +122,10 @@ public class ShiftStaffService {
         boolean manager = MANAGER_LEVELS.contains(viewer.level());
         var date = today();
         String status = shifts.findById(date).map(s -> s.getStatus().toUpperCase()).orElse("NONE");
-        var records = shiftStaff.findByBusinessDateOrderByClockInAtAsc(date).stream()
+        var filtered = shiftStaff.findByBusinessDateOrderByClockInAtAsc(date).stream()
                 .filter(s -> manager || s.getClockOutAt() == null || s.getStaffId().equals(viewer.id()))
-                .map(this::toResponse).toList();
-        return new com.example.drinkshop.dto.ShiftStaffDtos.Today(date, status, records, manager);
+                .toList();
+        return new com.example.drinkshop.dto.ShiftStaffDtos.Today(date, status, toResponses(filtered), manager);
     }
 
     /** 給其他功能使用（例如 checklist 打勾）：這位員工今天是否在班。 */
@@ -220,13 +219,41 @@ public class ShiftStaffService {
     }
 
     private Response toResponse(ShiftStaff s) {
-        var shift = shifts.findById(s.getBusinessDate()).orElse(null);
-        String closeType = determineCloseType(s, shift);
-        var schedList = schedules.findByWorkDateAndStaffId(s.getBusinessDate(), s.getStaffId());
-        LocalTime schedStart = schedList.isEmpty() ? null : schedList.get(0).getStartTime();
-        LocalTime schedEnd = schedList.isEmpty() ? null : schedList.get(0).getEndTime();
-        return new Response(s.getId(), s.getBusinessDate(), s.getStaffId(), staffName(s.getStaffId()),
-                s.getClockInAt(), s.getClockOutAt(), s.getClockOutAt() == null, s.getUpdatedBy(), s.getUpdatedAt(),
-                schedStart, schedEnd, closeType);
+        return toResponses(List.of(s)).get(0);
+    }
+
+    /** 批次將打卡紀錄轉為回應物件，預載區間內的班次、排班與員工姓名，避免 N+1 雲端資料庫查詢。 */
+    private List<Response> toResponses(List<ShiftStaff> records) {
+        if (records.isEmpty()) return List.of();
+        LocalDate minDate = records.get(0).getBusinessDate();
+        LocalDate maxDate = minDate;
+        for (var r : records) {
+            if (r.getBusinessDate().isBefore(minDate)) minDate = r.getBusinessDate();
+            if (r.getBusinessDate().isAfter(maxDate)) maxDate = r.getBusinessDate();
+        }
+        var shiftMap = new java.util.HashMap<LocalDate, DailyShift>();
+        for (var sh : shifts.findByBusinessDateBetween(minDate, maxDate)) {
+            shiftMap.put(sh.getBusinessDate(), sh);
+        }
+        var schedMap = new java.util.HashMap<String, com.example.drinkshop.entity.StaffSchedule>();
+        for (var sc : schedules.findByWorkDateBetweenOrderByWorkDateAscStartTimeAscIdAsc(minDate, maxDate)) {
+            schedMap.putIfAbsent(sc.getWorkDate() + ":" + sc.getStaffId(), sc);
+        }
+        var nameMap = new java.util.HashMap<Long, String>();
+        for (var row : pos.rows("SELECT staff_id, name FROM staff_account")) {
+            nameMap.put(PosRepository.number(row, "staff_id"), (String) row.get("name"));
+        }
+        var result = new java.util.ArrayList<Response>(records.size());
+        for (var s : records) {
+            var shift = shiftMap.get(s.getBusinessDate());
+            String closeType = determineCloseType(s, shift);
+            var sched = schedMap.get(s.getBusinessDate() + ":" + s.getStaffId());
+            LocalTime schedStart = sched == null ? null : sched.getStartTime();
+            LocalTime schedEnd = sched == null ? null : sched.getEndTime();
+            result.add(new Response(s.getId(), s.getBusinessDate(), s.getStaffId(), nameMap.get(s.getStaffId()),
+                    s.getClockInAt(), s.getClockOutAt(), s.getClockOutAt() == null, s.getUpdatedBy(), s.getUpdatedAt(),
+                    schedStart, schedEnd, closeType));
+        }
+        return result;
     }
 }
