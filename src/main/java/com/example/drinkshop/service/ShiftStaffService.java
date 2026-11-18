@@ -195,6 +195,14 @@ public class ShiftStaffService {
         return rows.isEmpty() ? null : (String) rows.get(0).get("name");
     }
 
+    public Map<Long, String> staffNames() {
+        var nameMap = new java.util.HashMap<Long, String>();
+        for (var row : pos.rows("SELECT staff_id, name FROM staff_account")) {
+            nameMap.put(PosRepository.number(row, "staff_id"), (String) row.get("name"));
+        }
+        return nameMap;
+    }
+
     private List<Map<String, Object>> staffRow(long staffId) {
         return pos.rows("SELECT name, active FROM staff_account WHERE staff_id=?", staffId);
     }

@@ -106,18 +106,19 @@ public class ScheduleService {
         var week = weeks.findById(start);
         var names = templateNames();
         var tagNames = tagNames();
+        var staffNames = staff.staffNames();
         List<EntryResponse> entries;
         List<String> warnings;
         if (manager) {
             // 店長看草稿
             var rows = schedules.findByWorkDateBetweenOrderByWorkDateAscStartTimeAscIdAsc(start, end);
-            entries = rows.stream().map(s -> toResponse(s, names, tagNames)).toList();
-            warnings = overlapWarnings(rows);
+            entries = rows.stream().map(s -> toResponse(s, names, tagNames, staffNames)).toList();
+            warnings = overlapWarnings(rows, staffNames);
         } else {
             // 員工只看已發布版本；未發布的週是空的
             entries = week.isEmpty() ? List.of()
                 : published.findByWorkDateBetweenOrderByWorkDateAscStartTimeAscIdAsc(start, end)
-                    .stream().map(p -> toResponse(p, names, tagNames)).toList();
+                    .stream().map(p -> toResponse(p, names, tagNames, staffNames)).toList();
             warnings = List.of();
         }
         return new WeekResponse(start, end, week.isPresent(),
@@ -166,7 +167,7 @@ public class ScheduleService {
         var start = weekStart(date == null ? LocalDate.now(clock) : date);
         var end = start.plusDays(6);
         var drafts = schedules.findByWorkDateBetweenOrderByWorkDateAscStartTimeAscIdAsc(start, end);
-        var overlaps = overlapWarnings(drafts);
+        var overlaps = overlapWarnings(drafts, staff.staffNames());
         if (!overlaps.isEmpty())
             throw ApiException.conflict("本週有 " + overlaps.size() + " 個時段重疊，請先修正再發布");
         published.deleteWeek(start, end);
@@ -203,7 +204,8 @@ public class ScheduleService {
     private SaveResult saved(StaffSchedule entry) {
         markModified(weekStart(entry.getWorkDate()));
         var sameDay = schedules.findByWorkDateAndStaffId(entry.getWorkDate(), entry.getStaffId());
-        return new SaveResult(toResponse(entry, templateNames(), tagNames()), overlapWarnings(sameDay));
+        var staffNames = staff.staffNames();
+        return new SaveResult(toResponse(entry, templateNames(), tagNames(), staffNames), overlapWarnings(sameDay, staffNames));
     }
 
     /** 已發布的週草稿有任何修改，就標記「有尚未發布的修改」。 */
@@ -230,7 +232,7 @@ public class ScheduleService {
     }
 
     /** 同一人同一天時段重疊的提醒。 */
-    private List<String> overlapWarnings(List<StaffSchedule> rows) {
+    private List<String> overlapWarnings(List<StaffSchedule> rows, Map<Long, String> staffNames) {
         var warnings = new ArrayList<String>();
         for (int i = 0; i < rows.size(); i++) {
             for (int j = i + 1; j < rows.size(); j++) {
@@ -239,7 +241,7 @@ public class ScheduleService {
                         && a.getStartTime().isBefore(b.getEndTime()) && b.getStartTime().isBefore(a.getEndTime())) {
                     // 例：11月05日班表 POS 測試店員 時段重疊（10:00–13:00、10:00–18:00）
                     warnings.add(String.format("%d月%d日班表 %s 時段重疊\n（%s–%s、%s–%s）",
-                        a.getWorkDate().getMonthValue(), a.getWorkDate().getDayOfMonth(), staff.staffName(a.getStaffId()),
+                        a.getWorkDate().getMonthValue(), a.getWorkDate().getDayOfMonth(), staffNames.get(a.getStaffId()),
                         a.getStartTime(), a.getEndTime(), b.getStartTime(), b.getEndTime()));
                 }
             }
@@ -284,16 +286,16 @@ public class ScheduleService {
     private static String blankToNull(String s) { return s == null || s.isBlank() ? null : s.trim(); }
 
     /** 已發布版本沒有修改時間；scheduleId 為已發布紀錄的編號（員工畫面不會用來編輯）。 */
-    private EntryResponse toResponse(PublishedSchedule p, Map<Long, String> names, Map<Long, String> tagNames) {
+    private EntryResponse toResponse(PublishedSchedule p, Map<Long, String> names, Map<Long, String> tagNames, Map<Long, String> staffNames) {
         var ids = parseTags(p.getTagIds());
-        return new EntryResponse(p.getId(), p.getWorkDate(), p.getStaffId(), staff.staffName(p.getStaffId()),
+        return new EntryResponse(p.getId(), p.getWorkDate(), p.getStaffId(), staffNames.get(p.getStaffId()),
             p.getTemplateId(), p.getTemplateId() == null ? null : names.get(p.getTemplateId()),
             p.getStartTime(), p.getEndTime(), p.getNote(), null, ids, tagNamesOf(ids, tagNames));
     }
 
-    private EntryResponse toResponse(StaffSchedule s, Map<Long, String> names, Map<Long, String> tagNames) {
+    private EntryResponse toResponse(StaffSchedule s, Map<Long, String> names, Map<Long, String> tagNames, Map<Long, String> staffNames) {
         var ids = parseTags(s.getTagIds());
-        return new EntryResponse(s.getId(), s.getWorkDate(), s.getStaffId(), staff.staffName(s.getStaffId()),
+        return new EntryResponse(s.getId(), s.getWorkDate(), s.getStaffId(), staffNames.get(s.getStaffId()),
             s.getTemplateId(), s.getTemplateId() == null ? null : names.get(s.getTemplateId()),
             s.getStartTime(), s.getEndTime(), s.getNote(), s.getUpdatedAt(), ids, tagNamesOf(ids, tagNames));
     }
