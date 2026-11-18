@@ -97,6 +97,29 @@ public class WastageService {
         // 損耗金額＝原料報廢成本合計；有原料沒建單位成本時為 NULL（costComplete=false），前端顯示「成本未建檔」。
         return new DailyWastageSummaryResponse(date,cups,complete?total:null,wasted,complete,rawEnabled,raw);
     }
+
+    @Transactional(readOnly = true)
+    public DailyWastageSummaryResponse getMonthlyWastageSummary(YearMonth month) {
+        LocalDate from = month.atDay(1);
+        LocalDate to = month.atEndOfMonth();
+        var wasted = new ArrayList<OrderItemDto>();
+        BigDecimal total = Money.ZERO;
+        boolean complete = true;
+        var raw = new ArrayList<RawMaterialWastageResponse>();
+        if (rawEnabled) for (var row : repo.rows(
+                "SELECT * FROM raw_material_wastage WHERE business_date BETWEEN ? AND ? ORDER BY business_date DESC, wastage_id DESC", from, to)) {
+            BigDecimal cost = decimal(row, "material_cost");
+            if (cost == null) complete = false; else total = total.add(cost);
+            Object rawDate = row.get("business_date");
+            LocalDate bizDate = rawDate instanceof java.sql.Date d ? d.toLocalDate()
+                : rawDate instanceof LocalDate ld ? ld : LocalDate.parse(rawDate.toString());
+            raw.add(new RawMaterialWastageResponse(PosRepository.number(row, "wastage_id"), bizDate,
+                PosRepository.number(row, "inventory_id"), decimal(row, "quantity"), decimal(row, "unit_cost"), cost,
+                row.get("reason").toString(), PosRepository.number(row, "reported_by"),
+                timestamp(row.get("reported_at"))));
+        }
+        return new DailyWastageSummaryResponse(from, 0, complete ? total : null, wasted, complete, rawEnabled, raw);
+    }
     private static LocalDateTime timestamp(Object value) {
         // 不同 JDBC 驅動可能回傳 Timestamp 或 LocalDateTime。
         return value instanceof java.sql.Timestamp ts ? ts.toLocalDateTime() : (LocalDateTime)value;

@@ -82,6 +82,18 @@ public class WastageController {
         return ResponseEntity.ok(summary);
     }
 
+    /**
+     * 當月原料報廢總額統計摘要（店長／總部月查詢）
+     * GET /api/wastages/monthly-summary?month=YYYY-MM
+     */
+    @GetMapping("/monthly-summary")
+    public ResponseEntity<DailyWastageSummaryResponse> getMonthlyWastageSummary(
+            @RequestParam(name = "month", required = false) @DateTimeFormat(pattern = "yyyy-MM") java.time.YearMonth month) {
+        java.time.YearMonth targetMonth = month != null ? month : java.time.YearMonth.from(LocalDate.now(clock));
+        DailyWastageSummaryResponse summary = wastageService.getMonthlyWastageSummary(targetMonth);
+        return ResponseEntity.ok(summary);
+    }
+
     // 經手人一律是目前登入的帳號，不接受前端指定，避免冒用別人的名義
     private Long currentStaffId(Principal principal) {
         return posRepository.staff(principal.getName())
