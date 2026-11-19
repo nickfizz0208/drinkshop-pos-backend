@@ -68,6 +68,11 @@ public class WastageService {
 
     @Transactional(readOnly = true)
     public DailyWastageSummaryResponse getDailyWastageSummary(LocalDate date) {
+        return getDailyWastageSummary(date, null);
+    }
+
+    @Transactional(readOnly = true)
+    public DailyWastageSummaryResponse getDailyWastageSummary(LocalDate date, Long filterStaffId) {
         var wasted=new ArrayList<OrderItemDto>();
         BigDecimal total=Money.ZERO;
         boolean complete=true;
@@ -78,6 +83,7 @@ public class WastageService {
             WHERE o.business_date=? AND i.status='WASTED' ORDER BY i.item_id
             """,date)) {
             OrderItem item=items.findById(PosRepository.number(row,"item_id")).orElseThrow();
+            if (filterStaffId != null && !filterStaffId.equals(item.getApprovedBy())) continue;
             cups+=item.getQty();
             // 飲品不計原料成本（配方只記材料、沒有份量，021），飲品報廢只算杯數；損耗金額只加總原料報廢。
             wasted.add(new OrderItemDto(item.getItemId(),item.getOrderId(),item.getProductId(),item.getProductName(),
@@ -85,14 +91,28 @@ public class WastageService {
                 item.getStatus(),item.getNote(),item.getCreatedAt()));
         }
         var raw=new ArrayList<RawMaterialWastageResponse>();
-        if (rawEnabled) for (var row:repo.rows(
-                "SELECT * FROM raw_material_wastage WHERE business_date=? ORDER BY wastage_id", date)) {
-            BigDecimal cost=decimal(row,"material_cost");
-            if (cost==null) complete=false; else total=total.add(cost);
-            raw.add(new RawMaterialWastageResponse(PosRepository.number(row,"wastage_id"),date,
-                PosRepository.number(row,"inventory_id"),decimal(row,"quantity"),decimal(row,"unit_cost"),cost,
-                row.get("reason").toString(),PosRepository.number(row,"reported_by"),
-                timestamp(row.get("reported_at"))));
+        if (rawEnabled) {
+            List<Map<String, Object>> rawRows = filterStaffId == null
+                ? repo.rows("""
+                    SELECT r.*, s.name AS reported_by_name
+                    FROM raw_material_wastage r
+                    LEFT JOIN staff_account s ON s.staff_id = r.reported_by
+                    WHERE r.business_date=? ORDER BY r.wastage_id
+                    """, date)
+                : repo.rows("""
+                    SELECT r.*, s.name AS reported_by_name
+                    FROM raw_material_wastage r
+                    LEFT JOIN staff_account s ON s.staff_id = r.reported_by
+                    WHERE r.business_date=? AND r.reported_by=? ORDER BY r.wastage_id
+                    """, date, filterStaffId);
+            for (var row : rawRows) {
+                BigDecimal cost=decimal(row,"material_cost");
+                if (cost==null) complete=false; else total=total.add(cost);
+                raw.add(new RawMaterialWastageResponse(PosRepository.number(row,"wastage_id"),date,
+                    PosRepository.number(row,"inventory_id"),decimal(row,"quantity"),decimal(row,"unit_cost"),cost,
+                    row.get("reason").toString(),PosRepository.number(row,"reported_by"),
+                    (String)row.get("reported_by_name"),timestamp(row.get("reported_at"))));
+            }
         }
         // 損耗金額＝原料報廢成本合計；有原料沒建單位成本時為 NULL（costComplete=false），前端顯示「成本未建檔」。
         return new DailyWastageSummaryResponse(date,cups,complete?total:null,wasted,complete,rawEnabled,raw);
@@ -100,23 +120,42 @@ public class WastageService {
 
     @Transactional(readOnly = true)
     public DailyWastageSummaryResponse getMonthlyWastageSummary(YearMonth month) {
+        return getMonthlyWastageSummary(month, null);
+    }
+
+    @Transactional(readOnly = true)
+    public DailyWastageSummaryResponse getMonthlyWastageSummary(YearMonth month, Long filterStaffId) {
         LocalDate from = month.atDay(1);
         LocalDate to = month.atEndOfMonth();
         var wasted = new ArrayList<OrderItemDto>();
         BigDecimal total = Money.ZERO;
         boolean complete = true;
         var raw = new ArrayList<RawMaterialWastageResponse>();
-        if (rawEnabled) for (var row : repo.rows(
-                "SELECT * FROM raw_material_wastage WHERE business_date BETWEEN ? AND ? ORDER BY business_date DESC, wastage_id DESC", from, to)) {
-            BigDecimal cost = decimal(row, "material_cost");
-            if (cost == null) complete = false; else total = total.add(cost);
-            Object rawDate = row.get("business_date");
-            LocalDate bizDate = rawDate instanceof java.sql.Date d ? d.toLocalDate()
-                : rawDate instanceof LocalDate ld ? ld : LocalDate.parse(rawDate.toString());
-            raw.add(new RawMaterialWastageResponse(PosRepository.number(row, "wastage_id"), bizDate,
-                PosRepository.number(row, "inventory_id"), decimal(row, "quantity"), decimal(row, "unit_cost"), cost,
-                row.get("reason").toString(), PosRepository.number(row, "reported_by"),
-                timestamp(row.get("reported_at"))));
+        if (rawEnabled) {
+            List<Map<String, Object>> rawRows = filterStaffId == null
+                ? repo.rows("""
+                    SELECT r.*, s.name AS reported_by_name
+                    FROM raw_material_wastage r
+                    LEFT JOIN staff_account s ON s.staff_id = r.reported_by
+                    WHERE r.business_date BETWEEN ? AND ? ORDER BY r.business_date DESC, r.wastage_id DESC
+                    """, from, to)
+                : repo.rows("""
+                    SELECT r.*, s.name AS reported_by_name
+                    FROM raw_material_wastage r
+                    LEFT JOIN staff_account s ON s.staff_id = r.reported_by
+                    WHERE r.business_date BETWEEN ? AND ? AND r.reported_by = ? ORDER BY r.business_date DESC, r.wastage_id DESC
+                    """, from, to, filterStaffId);
+            for (var row : rawRows) {
+                BigDecimal cost = decimal(row, "material_cost");
+                if (cost == null) complete = false; else total = total.add(cost);
+                Object rawDate = row.get("business_date");
+                LocalDate bizDate = rawDate instanceof java.sql.Date d ? d.toLocalDate()
+                    : rawDate instanceof LocalDate ld ? ld : LocalDate.parse(rawDate.toString());
+                raw.add(new RawMaterialWastageResponse(PosRepository.number(row, "wastage_id"), bizDate,
+                    PosRepository.number(row, "inventory_id"), decimal(row, "quantity"), decimal(row, "unit_cost"), cost,
+                    row.get("reason").toString(), PosRepository.number(row, "reported_by"),
+                    (String) row.get("reported_by_name"), timestamp(row.get("reported_at"))));
+            }
         }
         return new DailyWastageSummaryResponse(from, 0, complete ? total : null, wasted, complete, rawEnabled, raw);
     }
