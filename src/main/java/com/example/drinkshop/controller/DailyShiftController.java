@@ -64,8 +64,9 @@ public class DailyShiftController {
             @Valid @RequestBody CloseShiftRequest request,
             Principal principal) {
         LocalDate date = request.businessDate() != null ? request.businessDate() : LocalDate.now(clock);
-        // 關班和開班一樣，要選「誰關的」，必須是在職員工本人
+        // 關班和開班一樣，要選「誰關的」，必須是在職員工本人，且目前必須在班
         Long staffId = requirePerson(request.staffId(), "關班");
+        requireOnDutyWhenShiftOpen(date, staffId);
 
         ShiftClosingSummaryResponse summary;
         try {
@@ -111,6 +112,19 @@ public class DailyShiftController {
         if (person.isEmpty() || !isTrue(person.get(0).get("active")) || "POS".equals(person.get(0).get("level")))
             throw ApiException.bad(action + "人員必須是在職員工");
         return staffId;
+    }
+
+    // 關班人員必須是該營業日目前在班中（已打卡上班且尚未打卡下班）的人員
+    private void requireOnDutyWhenShiftOpen(LocalDate date, Long staffId) {
+        var shiftRows = posRepository.rows("SELECT status FROM daily_shift WHERE business_date=?", date);
+        if (!shiftRows.isEmpty() && "OPEN".equals(shiftRows.get(0).get("status"))) {
+            var onDuty = posRepository.rows(
+                "SELECT 1 FROM shift_staff WHERE business_date=? AND staff_id=? AND clock_out_at IS NULL",
+                date, staffId);
+            if (onDuty.isEmpty()) {
+                throw ApiException.conflict("關班人員目前不在班，請選擇在班人員或先打卡上班");
+            }
+        }
     }
 
     // MySQL 的 BOOLEAN 可能讀成 Boolean 或數字 1
