@@ -17,6 +17,9 @@ public interface DailyShiftRepository extends JpaRepository<DailyShift, LocalDat
     // 依營業狀態查詢班次（例如 OPEN、CLOSED）
     List<DailyShift> findByStatus(String status);
 
+    // 查詢在特定日期之前且符合狀態的班次（用於自動處理逾期未關班）
+    List<DailyShift> findByBusinessDateBeforeAndStatus(LocalDate businessDate, String status);
+
     // 依營業日期區間查詢班次紀錄
     List<DailyShift> findByBusinessDateBetween(LocalDate startDate, LocalDate endDate);
 

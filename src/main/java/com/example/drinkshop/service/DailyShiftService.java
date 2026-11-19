@@ -5,6 +5,7 @@ import com.example.drinkshop.entity.DailyShift;
 import com.example.drinkshop.exception.ApiException;
 import com.example.drinkshop.repository.DailyShiftRepository;
 import com.example.drinkshop.repository.PosRepository;
+import com.example.drinkshop.repository.ShiftStaffRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,10 +22,12 @@ public class DailyShiftService {
     private final WastageService wastage;
     private final RuleService json;
     private final Clock clock;
+    private final ShiftStaffRepository shiftStaffRepo;
 
     public DailyShiftService(DailyShiftRepository shifts, PosRepository repo, WastageService wastage,
-                             RuleService json, Clock clock) {
+                             RuleService json, Clock clock, ShiftStaffRepository shiftStaffRepo) {
         this.shifts = shifts; this.repo = repo; this.wastage = wastage; this.json = json; this.clock = clock;
+        this.shiftStaffRepo = shiftStaffRepo;
     }
 
     public DailyShift openShift(LocalDate date, Long staffId, BigDecimal pettyCash, String rolesJson) {
@@ -65,13 +68,75 @@ public class DailyShiftService {
                 + difference.abs().stripTrailingZeros().toPlainString()
                 + "（應有 $" + expected.stripTrailingZeros().toPlainString() + "），請填寫差異原因");
         var waste = wastage.getDailyWastageSummary(date);
+        LocalDateTime closedAt = LocalDateTime.now(clock);
         shift.setStatus("CLOSED"); shift.setCups(cups); shift.setExpectedCash(expected);
         shift.setCountedCash(counted); shift.setDiffReason(diffReason); shift.setClosedBy(staffId);
-        shift.setClosedAt(LocalDateTime.now(clock)); shift.setRevenueByPayment(json.write(receipts));
+        shift.setClosedAt(closedAt); shift.setRevenueByPayment(json.write(receipts));
+        if (shift.getRevenueByPayment() == null) shift.setRevenueByPayment("{}");
         shifts.saveAndFlush(shift);
+
+        // 關班時強制所有在班人員打卡下班
+        for (var onDutyStaff : shiftStaffRepo.findByBusinessDateAndClockOutAtIsNull(date)) {
+            onDutyStaff.setClockOutAt(closedAt);
+            shiftStaffRepo.save(onDutyStaff);
+        }
+        shiftStaffRepo.flush();
+
         return new ShiftClosingSummaryResponse(date, "CLOSED", shift.getPettyCash(), revenue,
             waste.totalWastageCost(), expected, counted, difference, cups, diffReason,
             waste.costComplete(), waste.rawWastageEnabled());
+    }
+
+    /**
+     * 處理逾期未關班的歷史班次（如超過午夜 12 點未收班）：
+     * 1. 強制將未下班人員設為該營業日 23:59:59 下班
+     * 2. 自動結算並收班（以開班人為關班責任人、現金相符、原因標記為系統逾午夜自動收班）
+     */
+    public int closeOverdueShifts(LocalDate today) {
+        var overdue = shifts.findByBusinessDateBeforeAndStatus(today, "OPEN");
+        int count = 0;
+        for (var shift : overdue) {
+            LocalDate date = shift.getBusinessDate();
+            LocalDateTime midnight = date.atTime(23, 59, 59);
+
+            // 1. 強制打卡人員午夜下班
+            for (var onDuty : shiftStaffRepo.findByBusinessDateAndClockOutAtIsNull(date)) {
+                onDuty.setClockOutAt(midnight);
+                shiftStaffRepo.save(onDuty);
+            }
+            shiftStaffRepo.flush();
+
+            // 2. 計算營收與收款
+            var sales = repo.one("""
+                SELECT COALESCE(SUM(i.qty*i.unit_price),0) AS revenue, COALESCE(SUM(i.qty),0) AS cups
+                FROM order_item i JOIN pos_order o ON o.order_id=i.order_id
+                WHERE o.business_date=? AND i.status NOT IN ('CANCELLED','WASTED')
+                """, date);
+            int cups = PosRepository.integer(sales, "cups");
+            var receipts = new LinkedHashMap<String, BigDecimal>();
+            for (var row : repo.rows("""
+                SELECT payment, SUM(paid_amount-refunded_amount) AS net
+                FROM pos_order WHERE business_date=? AND payment IS NOT NULL GROUP BY payment
+                """, date)) {
+                receipts.put(row.get("payment").toString(), new BigDecimal(row.get("net").toString()));
+            }
+            BigDecimal expected = shift.getPettyCash().add(receipts.getOrDefault("CASH", Money.ZERO));
+
+            // 3. 收班
+            shift.setStatus("CLOSED");
+            shift.setCups(cups);
+            shift.setExpectedCash(expected);
+            shift.setCountedCash(expected);
+            shift.setDiffReason("系統逾午夜自動收班");
+            shift.setClosedBy(shift.getOpenedBy());
+            shift.setClosedAt(midnight);
+            shift.setRevenueByPayment(json.write(receipts));
+            if (shift.getRevenueByPayment() == null) shift.setRevenueByPayment("{}");
+            shifts.save(shift);
+            count++;
+        }
+        shifts.flush();
+        return count;
     }
 
     /**

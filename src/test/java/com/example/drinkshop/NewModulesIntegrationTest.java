@@ -172,7 +172,16 @@ public class NewModulesIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new CloseShiftRequest(testDate, new BigDecimal("2000.00"), "無短溢", 10L))))
                 .andExpect(status().isBadRequest());
+        // 不在班的人員不能關班
         CloseShiftRequest closeReq = new CloseShiftRequest(testDate, new BigDecimal("2000.00"), "無短溢", 11L);
+        mockMvc.perform(post("/api/daily-shifts/close")
+                        .with(login(TEST_USER, TEST_PASS))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(closeReq)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("關班人員目前不在班，請選擇在班人員或先打卡上班"));
+        // 員工 11 打卡在班後即可關班
+        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES (?, 11, CURRENT_TIMESTAMP)", testDate);
         mockMvc.perform(post("/api/daily-shifts/close")
                         .with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -214,6 +223,7 @@ public class NewModulesIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(reopen))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("今天還在營業中，不用重新開班"));
+        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES (?, 11, CURRENT_TIMESTAMP)", testDate);
         mockMvc.perform(post("/api/daily-shifts/close").with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new CloseShiftRequest(testDate, new BigDecimal("1500"), null, 11L))))
@@ -226,7 +236,8 @@ public class NewModulesIntegrationTest {
                 .andExpect(jsonPath("$.closedBy").isEmpty())
                 .andExpect(jsonPath("$.openedBy").value(11))
                 .andExpect(jsonPath("$.pettyCash").value(1500.0));
-        // 可以再關一次
+        // 重新開班並再次打卡上班後，可以再關一次
+        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES (?, 11, CURRENT_TIMESTAMP)", testDate);
         mockMvc.perform(post("/api/daily-shifts/close").with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new CloseShiftRequest(testDate, new BigDecimal("1500"), null, 11L))))
@@ -242,6 +253,7 @@ public class NewModulesIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new OpenShiftRequest(testDate, new BigDecimal("2000"), "[]", 11L))))
                 .andExpect(status().isCreated());
+        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES (?, 11, CURRENT_TIMESTAMP)", testDate);
         // 短少 10 元沒寫原因：400，班次維持 OPEN
         mockMvc.perform(post("/api/daily-shifts/close")
                         .with(login(TEST_USER, TEST_PASS))

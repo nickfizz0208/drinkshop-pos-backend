@@ -71,14 +71,30 @@ public class WastageController {
     }
 
     /**
-     * 當日報廢總額統計摘要
+     * 當日報廢總額統計摘要（店長／總部看全店；一般員工只看自己回報的紀錄）
      * GET /api/wastages/daily-summary?date=YYYY-MM-DD
      */
     @GetMapping("/daily-summary")
     public ResponseEntity<DailyWastageSummaryResponse> getDailyWastageSummary(
-            @RequestParam(name = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+            @RequestParam(name = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            Principal principal) {
         LocalDate targetDate = date != null ? date : LocalDate.now(clock);
-        DailyWastageSummaryResponse summary = wastageService.getDailyWastageSummary(targetDate);
+        Long filterStaffId = resolveViewerFilterStaffId(principal);
+        DailyWastageSummaryResponse summary = wastageService.getDailyWastageSummary(targetDate, filterStaffId);
+        return ResponseEntity.ok(summary);
+    }
+
+    /**
+     * 當月原料報廢總額統計摘要（店長／總部看全店；一般員工只看自己回報的紀錄）
+     * GET /api/wastages/monthly-summary?month=YYYY-MM
+     */
+    @GetMapping("/monthly-summary")
+    public ResponseEntity<DailyWastageSummaryResponse> getMonthlyWastageSummary(
+            @RequestParam(name = "month", required = false) @DateTimeFormat(pattern = "yyyy-MM") java.time.YearMonth month,
+            Principal principal) {
+        java.time.YearMonth targetMonth = month != null ? month : java.time.YearMonth.from(LocalDate.now(clock));
+        Long filterStaffId = resolveViewerFilterStaffId(principal);
+        DailyWastageSummaryResponse summary = wastageService.getMonthlyWastageSummary(targetMonth, filterStaffId);
         return ResponseEntity.ok(summary);
     }
 
@@ -88,5 +104,17 @@ public class WastageController {
                 .filter(Staff::active)
                 .map(Staff::id)
                 .orElseThrow(() -> ApiException.unauthorized("員工帳號已停用"));
+    }
+
+    // 店長／總部看全店（回傳 null 不過濾）；一般員工只看自己回報的紀錄（回傳自己的 staffId）
+    private Long resolveViewerFilterStaffId(Principal principal) {
+        if (principal == null) return null;
+        Staff staff = posRepository.staff(principal.getName())
+                .filter(Staff::active)
+                .orElseThrow(() -> ApiException.unauthorized("員工帳號已停用"));
+        if (java.util.Set.of("MANAGER", "HQ", "POS").contains(staff.level())) {
+            return null;
+        }
+        return staff.id();
     }
 }

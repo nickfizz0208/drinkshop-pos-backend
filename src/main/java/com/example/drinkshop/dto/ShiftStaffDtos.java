@@ -3,6 +3,7 @@ package com.example.drinkshop.dto;
 import jakarta.validation.constraints.NotNull;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 public final class ShiftStaffDtos {
     private ShiftStaffDtos() {}
@@ -19,7 +20,13 @@ public final class ShiftStaffDtos {
      */
     public record Today(LocalDate businessDate, String shiftStatus, java.util.List<Response> records, boolean canViewAll) {}
 
+    /**
+     * scheduledStartTime / scheduledEndTime：店長排班時間（若有排班）
+     * closeType：SELF（員工自行打卡下班）、AUTO_SHIFT_CLOSE（隨門市關班下班）、AUTO_MIDNIGHT（逾午夜強制下班）、MANAGER（店長修改）
+     */
     public record Response(Long shiftStaffId, LocalDate businessDate, Long staffId, String staffName,
                            LocalDateTime clockInAt, LocalDateTime clockOutAt, boolean onDuty,
-                           Long updatedBy, LocalDateTime updatedAt) {}
+                           Long updatedBy, LocalDateTime updatedAt,
+                           LocalTime scheduledStartTime, LocalTime scheduledEndTime,
+                           String closeType) {}
 }
