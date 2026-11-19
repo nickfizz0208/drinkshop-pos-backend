@@ -84,6 +84,7 @@ public class SecurityConfig {
                 // 原料報廢回報：原料報廢登記、每日損耗紀錄只限店員、店長的個人帳號（報廢記在員工本人名下；POS 共用帳號不行）
                 .requestMatchers(HttpMethod.POST, "/api/wastages/raw-material").hasAnyRole("STAFF", "MANAGER")
                 .requestMatchers(HttpMethod.GET, "/api/wastages/daily-summary").hasAnyRole("STAFF", "MANAGER")
+                .requestMatchers(HttpMethod.HEAD, "/api/wastages/daily-summary").hasAnyRole("STAFF", "MANAGER")
                 // 停售管理：查看與設定都只限門市 POS、店長；原料、半成品的分類（029）只限店長
                 .requestMatchers(HttpMethod.PUT, "/api/sale-status/categories").hasRole("MANAGER")
                 .requestMatchers("/api/sale-status", "/api/sale-status/**").hasAnyRole("POS", "MANAGER")

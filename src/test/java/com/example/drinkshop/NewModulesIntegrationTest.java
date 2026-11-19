@@ -285,6 +285,8 @@ public class NewModulesIntegrationTest {
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/wastages/daily-summary").with(login(TEST_USER, TEST_PASS)))
                 .andExpect(status().isForbidden());
+        mockMvc.perform(head("/api/wastages/daily-summary").with(login(TEST_USER, TEST_PASS)))
+                .andExpect(status().isForbidden());
         // 1. 原料報廢 (原料 1 號，報廢 10.00)
         RawMaterialWastageRequest wasteReq = new RawMaterialWastageRequest(1L, new BigDecimal("10.00"), "過期變質");
         mockMvc.perform(post("/api/wastages/raw-material")
