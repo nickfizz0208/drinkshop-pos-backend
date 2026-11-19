@@ -81,7 +81,7 @@ public class WastageService {
             cups+=item.getQty();
             // 飲品不計原料成本（配方只記材料、沒有份量，021），飲品報廢只算杯數；損耗金額只加總原料報廢。
             wasted.add(new OrderItemDto(item.getItemId(),item.getOrderId(),item.getProductId(),item.getProductName(),
-                item.getSize(),item.getTemperature(),item.getSugar(),item.getIce(),item.getQty(),item.getUnitPrice(),
+                item.getSize(),item.getTempIce(),item.getSugar(),item.getQty(),item.getUnitPrice(),
                 item.getStatus(),item.getNote(),item.getCreatedAt()));
         }
         var raw=new ArrayList<RawMaterialWastageResponse>();

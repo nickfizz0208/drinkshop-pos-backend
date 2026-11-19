@@ -105,8 +105,8 @@ public class ClosingWastageRegressionTest {
     private final LocalDate day=LocalDate.of(2026,10,28);
     private com.fasterxml.jackson.databind.JsonNode create(com.example.drinkshop.dto.OrderRequests.Payment payment, boolean unpaid) throws Exception {
         var item=new com.example.drinkshop.dto.OrderRequests.Item(1L, com.example.drinkshop.dto.OrderRequests.Size.M,
-            com.example.drinkshop.dto.OrderRequests.Temperature.COLD,com.example.drinkshop.dto.OrderRequests.Sugar.HALF,
-            com.example.drinkshop.dto.OrderRequests.Ice.LESS,1,java.util.List.of(),null);
+            com.example.drinkshop.dto.OrderRequests.TempIce.LESS,com.example.drinkshop.dto.OrderRequests.Sugar.S5,
+            1,java.util.List.of(),null);
         var request=new com.example.drinkshop.dto.OrderRequests.Create(java.util.UUID.randomUUID(),
             com.example.drinkshop.dto.OrderRequests.Source.TAKE_OUT,payment,null,
             payment==com.example.drinkshop.dto.OrderRequests.Payment.CASH?new BigDecimal("100"):null,

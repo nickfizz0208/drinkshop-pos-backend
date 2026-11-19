@@ -58,7 +58,8 @@ public class PosRepository {
             item.remove("photo_path");
             item.put("photo_url", hasPhoto(id, number(item,"item_id"))
                 ? "/api/orders/"+id+"/items/"+item.get("item_id")+"/photo" : null);
-            item.put("toppings", rows("SELECT order_topping_id,topping_id,topping_name,price_at_order FROM order_item_topping WHERE item_id=? ORDER BY topping_id",item.get("item_id")));
+            item.put("toppings", rows("SELECT order_topping_id,topping_id,topping_name,qty,price_at_order FROM order_item_topping WHERE item_id=? ORDER BY topping_id",item.get("item_id")));
+            item.put("options", rows("SELECT order_option_id,option_id,option_name,qty FROM order_item_option WHERE item_id=? ORDER BY order_option_id",item.get("item_id")));
         }
         order.put("items", items);
         return order;

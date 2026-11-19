@@ -145,8 +145,8 @@ class SaleStatusApiTest {
     void orderWithStoppedMaterialIsRejected() throws Exception {
         put("s_pos","{\"inventories\":[{\"id\":6,\"onSale\":false}]}").andExpect(status().isOk());
         int before=jdbc.queryForObject("SELECT COUNT(*) FROM pos_order",Integer.class);
-        for (var item:List.of(new Item(4L,Size.M,Temperature.COLD,Sugar.HALF,Ice.LESS,1,List.of(),null),
-                              new Item(3L,Size.M,Temperature.COLD,Sugar.HALF,Ice.LESS,1,List.of(1L),null))) {
+        for (var item:List.of(new Item(4L,Size.M,TempIce.LESS,Sugar.S5,1,List.of(),null),
+                              new Item(3L,Size.M,TempIce.LESS,Sugar.S5,1,List.of(1L),null))) {
             var request=new Create(UUID.randomUUID(),Source.TAKE_OUT,Payment.LINE_PAY,null,null,null,null,null,null,List.of(item));
             mvc.perform(post("/api/orders").with(login("s_pos",PASSWORD)).contentType("application/json")
                 .content(json.writeValueAsBytes(request)))

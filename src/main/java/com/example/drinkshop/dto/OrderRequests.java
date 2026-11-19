@@ -15,17 +15,55 @@ public final class OrderRequests {
     public enum Payment { CASH, CREDIT_CARD, LINE_PAY, UBER_EATS }
     /** 容量：中杯、大杯、瓶（030）。每杯飲品賣哪些容量看 product 的 price_m、price_l、price_bottle。 */
     public enum Size { M, L, BOTTLE }
-    public enum Temperature { COLD, WARM, HOT }
-    public enum Sugar { NORMAL, LESS, HALF, LIGHT, NONE }
-    public enum Ice { NORMAL, LESS, LIGHT, NONE }
+    /**
+     * 溫度冰量（038，原本的溫度、冰量合成一個）：熱、溫、常溫、完全去冰、去冰、微冰、少冰、正常冰、多冰。
+     * 資料庫 conflict_rule 裡的舊規則還是用溫度（COLD/WARM/HOT）、冰量（NORMAL/LESS/LIGHT/NONE）寫的，
+     * 用 legacyTemperature()、legacyIce() 換算後比對（見 RuleService）。
+     */
+    public enum TempIce {
+        HOT, WARM, ROOM, ICE_FREE, NO_ICE, LIGHT, LESS, NORMAL, EXTRA;
+        /** 熱飲、溫飲（飲品不能做熱飲時不能選）。 */
+        public boolean hotOrWarm() { return this==HOT || this==WARM; }
+        /** 換成舊的溫度：熱、溫照舊，其他（含常溫）都算冷飲 COLD。 */
+        public String legacyTemperature() { return hotOrWarm() ? name() : "COLD"; }
+        /** 換成舊的冰量：微冰、少冰、正常冰照舊；熱、溫、常溫、完全去冰、去冰都是不加冰 NONE；多冰沒有舊值，回傳 EXTRA。 */
+        public String legacyIce() {
+            return switch(this) { case LIGHT, LESS, NORMAL, EXTRA -> name(); default -> "NONE"; };
+        }
+    }
+    /** 甜度（038）：無糖、0.5 分、1 分、3 分、5 分、7 分、10 分、多糖。 */
+    public enum Sugar {
+        NONE, S0_5, S1, S3, S5, S7, S10, EXTRA;
+        /** 規則裡寫的甜度：新值直接用；舊值換算（正常→10 分、少→7 分、半→5 分、微→3 分）。不認得的值回傳 null。 */
+        public static Sugar fromRule(String value) {
+            return switch(value) {
+                case "NORMAL" -> S10; case "LESS" -> S7; case "HALF" -> S5; case "LIGHT" -> S3;
+                default -> { try { yield Sugar.valueOf(value); } catch (IllegalArgumentException ex) { yield null; } }
+            };
+        }
+    }
     public enum ItemStatus { PENDING, MAKING, DONE, PICKED_UP, CANCELLED, WASTED }
+    /** 一杯飲料的加料最多幾份（全部加料的份數加起來，040）。每種加料自己的上限在 topping.max_qty。 */
+    public static final int MAX_TOPPINGS_PER_CUP = 5;
 
     // Item 代表「一種完整客製規格 × qty 杯」，toppingIds 只放額外加料的 ID。
+    // 同一種加料可以加好幾份（039）：ID 在清單裡出現兩次，例如 [1,1,3]＝珍珠兩份、椰果一份。
+    // 上限（040）：每種加料看 topping.max_qty，一杯全部加起來最多 MAX_TOPPINGS_PER_CUP 份。
+    // optionIds（041）：不用錢的客製選項（加酸、少料、加梅子…），用法跟 toppingIds 一樣；沒傳就是沒有。
     public record Item(@NotNull @Positive Long productId, @NotNull Size size,
-        @NotNull Temperature temperature, @NotNull Sugar sugar, @NotNull Ice ice,
+        @NotNull TempIce tempIce, @NotNull Sugar sugar,
         @Min(1) @Max(100) int qty,
         @NotNull @jakarta.validation.constraints.Size(max=20) List<@NotNull @Positive Long> toppingIds,
-        @jakarta.validation.constraints.Size(max=255) String note) {}
+        @jakarta.validation.constraints.Size(max=255) String note,
+        @jakarta.validation.constraints.Size(max=20) List<@NotNull @Positive Long> optionIds) {
+        public Item {
+            if (optionIds==null) optionIds=List.of();
+        }
+        /** 沒有客製選項的品項（舊的寫法）。 */
+        public Item(Long productId,Size size,TempIce tempIce,Sugar sugar,int qty,List<Long> toppingIds,String note) {
+            this(productId,size,tempIce,sugar,qty,toppingIds,note,List.of());
+        }
+    }
     // 不接收前端售價、總額或員工 ID：後端自行計價，操作人由登入身份取得。
     // requestId 用於安全重試；unpaid=true 表示先建單扣料，稍後才收款。
     public record Create(@NotNull UUID requestId, @NotNull Source source, Payment payment,

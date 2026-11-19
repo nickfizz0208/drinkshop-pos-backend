@@ -22,14 +22,11 @@ public record OrderItemDto(
         // 容量大小規格（M/L）
         String size,
 
-        // 溫度（COLD/WARM/HOT）
-        String temperature,
+        // 溫度冰量（038：HOT/WARM/ROOM/ICE_FREE/NO_ICE/LIGHT/LESS/NORMAL/EXTRA）
+        String tempIce,
 
-        // 甜度設定
+        // 甜度（038：NONE/S0_5/S1/S3/S5/S7/S10/EXTRA）
         String sugar,
-
-        // 冰塊設定
-        String ice,
 
         // 購買數量/杯數
         Integer qty,

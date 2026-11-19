@@ -71,7 +71,7 @@ class PosIntegrationTest {
         }
     }
     private Item item(long product,int qty,List<Long> toppings) {
-        return new Item(product,Size.M,Temperature.COLD,Sugar.HALF,Ice.LESS,qty,toppings,null);
+        return new Item(product,Size.M,TempIce.LESS,Sugar.S5,qty,toppings,null);
     }
     private Create request(Item... items) {
         return new Create(UUID.randomUUID(),Source.TAKE_OUT,Payment.LINE_PAY,null,null,null,null,null,null,List.of(items));
@@ -140,6 +140,13 @@ class PosIntegrationTest {
             .andReturn().getResponse().getContentAsString();
         assertFalse(body.contains("recipe")); assertFalse(body.contains("password"));
     }
+    @Test void menuReturnsColorTone() throws Exception {
+        // 032：飲品色系；沒設定是 null，前端依名稱、分類自動判斷
+        jdbc.update("UPDATE product SET color_tone='CREAM' WHERE product_id=3");
+        mvc.perform(get("/api/menu").with(login("test_staff",PASSWORD)))
+            .andExpect(jsonPath("$.products[2].color_tone").value("CREAM"))
+            .andExpect(jsonPath("$.products[0].color_tone").value(org.hamcrest.Matchers.nullValue()));
+    }
     @Test void rulesReturnStructuredJson() throws Exception {
         mvc.perform(get("/api/rules").with(login("test_staff",PASSWORD)))
             .andExpect(status().isOk()).andExpect(jsonPath("$[0].condition_json.temperatureIn[0]").value("WARM"));
@@ -172,15 +179,68 @@ class PosIntegrationTest {
         assertEquals(5,countOrders());
     }
     @Test void rejectsHotJellyAndInvalidSlushWithoutWriting() throws Exception {
-        var hot=new Item(1L,Size.M,Temperature.HOT,Sugar.NORMAL,Ice.NONE,1,List.of(2L),null);
+        var hot=new Item(1L,Size.M,TempIce.HOT,Sugar.S10,1,List.of(2L),null);
         for(var invalid:List.of(hot,item(5,1,List.of()))) {
             mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
                 .content(json.writeValueAsBytes(request(invalid)))).andExpect(status().isBadRequest());
         }
         assertEquals(4,countOrders());
     }
+    @Test void tempIceAndSugarWorkWithLegacyRuleJson() throws Exception {
+        // 038：溫度冰量、甜度改成新值；資料庫裡的舊規則（temperature、ice、舊甜度）換算後比對
+        // 冰沙固定冷飲、正常冰、正常糖 → 正常冰＋10 分糖可以送單，存進 temp_ice、sugar
+        var slush=create(request(new Item(5L,Size.M,TempIce.NORMAL,Sugar.S10,1,List.of(),null)));
+        assertEquals("NORMAL",jdbc.queryForObject("SELECT temp_ice FROM order_item WHERE order_id=?",String.class,slush.get("order_id").asLong()));
+        assertEquals("S10",jdbc.queryForObject("SELECT sugar FROM order_item WHERE order_id=?",String.class,slush.get("order_id").asLong()));
+        // 常溫不是溫熱飲：可以加「溫熱飲不可加」的茶凍；溫飲不行；冰沙不能做溫飲
+        create(request(new Item(1L,Size.M,TempIce.ROOM,Sugar.S5,1,List.of(2L),null)));
+        for(var invalid:List.of(new Item(1L,Size.M,TempIce.WARM,Sugar.S5,1,List.of(2L),null),
+                                new Item(5L,Size.M,TempIce.WARM,Sugar.S10,1,List.of(),null)))
+            mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
+                .content(json.writeValueAsBytes(request(invalid)))).andExpect(status().isBadRequest());
+        assertEquals(6,countOrders());
+    }
+    @Test void sameToppingTwiceIsChargedTwiceAndStoredAsQty() throws Exception {
+        // 039：同一種加料可以加兩份，每份都算錢；存成一筆、qty=2
+        var order=create(request(item(1,1,List.of(1L,1L))));
+        assertEquals(45,order.get("total").asInt());   // 經典紅茶中杯 25 ＋ 珍珠 10 × 2
+        long itemId=order.get("items").get(0).get("item_id").asLong();
+        assertEquals(2,jdbc.queryForObject("SELECT qty FROM order_item_topping WHERE item_id=? AND topping_id=1",Integer.class,itemId));
+        assertEquals(2,order.get("items").get(0).get("toppings").get(0).get("qty").asInt());
+    }
+    @Test void toppingLimitsComeFromDatabaseAndFivePerCup() throws Exception {
+        // 040：每種加料的上限記在 topping.max_qty；一杯全部加起來最多 5 份
+        jdbc.update("UPDATE topping SET max_qty=1 WHERE topping_id=2");
+        jdbc.update("UPDATE topping SET max_qty=5 WHERE topping_id=1");
+        create(request(item(1,1,List.of(1L,1L,1L,1L,1L))));                 // 珍珠 5 份：可以
+        for(var invalid:List.of(item(1,1,List.of(2L,2L)),                     // 茶凍上限 1 份
+                                item(1,1,List.of(1L,1L,1L,1L,1L,2L))))         // 一杯超過 5 份
+            mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
+                .content(json.writeValueAsBytes(request(invalid)))).andExpect(status().isBadRequest());
+        assertEquals(5,countOrders());
+        mvc.perform(get("/api/menu").with(login("test_staff",PASSWORD)))
+            .andExpect(jsonPath("$.toppings[1].max_qty").value(1));
+    }
+    @Test void customOptionsAreFreeAndStoredWithItem() throws Exception {
+        // 041：客製選項不用錢、沒有衝突（加梅子、不加梅子可以同時選），存當時名稱
+        var order=create(request(new Item(1L,Size.M,TempIce.LESS,Sugar.S5,1,List.of(),null,List.of(1L,3L,4L))));
+        assertEquals(25,order.get("total").asInt());
+        var options=order.get("items").get(0).get("options");
+        assertEquals(3,options.size());
+        assertEquals("加酸",options.get(0).get("option_name").asText());
+        mvc.perform(get("/api/menu").with(login("test_staff",PASSWORD))).andExpect(jsonPath("$.options.length()").value(4));
+        // 超過 max_qty（預設 1 份）、不存在的選項都擋下
+        mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
+            .content(json.writeValueAsBytes(request(new Item(1L,Size.M,TempIce.LESS,Sugar.S5,1,List.of(),null,List.of(1L,1L))))))
+            .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
+            .content(json.writeValueAsBytes(request(new Item(1L,Size.M,TempIce.LESS,Sugar.S5,1,List.of(),null,List.of(99L))))))
+            .andExpect(status().isNotFound());
+        assertEquals(5,countOrders());
+    }
     @Test void rejectsDuplicateToppingsAndZeroQuantity() throws Exception {
-        for(var invalid:List.of(item(1,1,List.of(1L,1L)),item(1,0,List.of())))
+        // 同一種加料預設最多兩份（topping.max_qty 預設 2），第三份擋下
+        for(var invalid:List.of(item(1,1,List.of(1L,1L,1L)),item(1,0,List.of())))
             mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD)).contentType("application/json")
                 .content(json.writeValueAsBytes(request(invalid)))).andExpect(status().isBadRequest());
         assertEquals(4,countOrders());
@@ -313,7 +373,7 @@ class PosIntegrationTest {
     @Test void fractionalPricesCashAndCancellationStayExact() throws Exception {
         jdbc.update("UPDATE product SET price_m=25.15,price_l=30.20 WHERE product_id=1");
         jdbc.update("UPDATE topping SET price=10.10 WHERE topping_id=1");
-        Item line=new Item(1L,Size.L,Temperature.COLD,Sugar.HALF,Ice.LESS,3,List.of(1L),null);
+        Item line=new Item(1L,Size.L,TempIce.LESS,Sugar.S5,3,List.of(1L),null);
         var request=new Create(UUID.randomUUID(),Source.TAKE_OUT,Payment.CASH,null,
             new BigDecimal("200.25"),new BigDecimal("1234.50"),180,null,null,List.of(line));
         var result=create(request);
@@ -334,7 +394,7 @@ class PosIntegrationTest {
         mvc.perform(get("/api/menu").with(login("test_staff",PASSWORD)))
             .andExpect(jsonPath("$.products[2].price_m").value(org.hamcrest.Matchers.nullValue()))
             .andExpect(jsonPath("$.products[2].price_bottle").value(75.0));
-        var bottle=new Item(3L,Size.BOTTLE,Temperature.COLD,Sugar.HALF,Ice.LESS,2,List.of(1L),null);
+        var bottle=new Item(3L,Size.BOTTLE,TempIce.LESS,Sugar.S5,2,List.of(1L),null);
         var result=create(request(bottle));
         assertEquals("BOTTLE",result.get("items").get(0).get("size").asText());
         assertEquals(0,new BigDecimal("85.00").compareTo(result.get("items").get(0).get("unit_price").decimalValue()));
@@ -368,7 +428,7 @@ class PosIntegrationTest {
         String oldBody="""
             {"requestId":"%s","source":"TAKE_OUT","payment":"CASH","receivedCash":100,
              "distanceM":1200,"durationSeconds":60,
-             "items":[{"productId":1,"size":"M","temperature":"COLD","sugar":"HALF","ice":"LESS","qty":1,"toppingIds":[]}]}
+             "items":[{"productId":1,"size":"M","tempIce":"LESS","sugar":"S5","qty":1,"toppingIds":[]}]}
             """.formatted(requestId);
         JsonNode first=json.readTree(mvc.perform(post("/api/orders").with(login("test_staff",PASSWORD))
             .contentType("application/json").content(oldBody)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
@@ -377,9 +437,9 @@ class PosIntegrationTest {
         var second=create(normalized);
         assertEquals(first.get("order_id"),second.get("order_id"));assertEquals(5,countOrders());
 
-        // Pre-migration DTO serialized integers, null fields and these names in this order.
+        // Pre-migration DTO serialized integers, null fields and these names in this order（038 起品項是 tempIce、sugar）.
         String legacy="""
-            {"requestId":"%s","source":"TAKE_OUT","payment":"CASH","memberPhone":null,"receivedCash":100,"distanceM":1200,"durationSeconds":60,"addressNote":null,"note":null,"items":[{"productId":1,"size":"M","temperature":"COLD","sugar":"HALF","ice":"LESS","qty":1,"toppingIds":[],"note":null}]}
+            {"requestId":"%s","source":"TAKE_OUT","payment":"CASH","memberPhone":null,"receivedCash":100,"distanceM":1200,"durationSeconds":60,"addressNote":null,"note":null,"items":[{"productId":1,"size":"M","tempIce":"LESS","sugar":"S5","qty":1,"toppingIds":[],"note":null,"optionIds":[]}]}
             """.formatted(requestId).strip();
         String expected=HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
             .digest(legacy.getBytes(java.nio.charset.StandardCharsets.UTF_8)));

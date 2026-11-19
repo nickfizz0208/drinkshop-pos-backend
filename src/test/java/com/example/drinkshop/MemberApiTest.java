@@ -77,7 +77,7 @@ class MemberApiTest {
         return json.readTree(result.andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
     }
     private ResultActions order(String memberPhone) throws Exception {
-        var item=new Item(1L,Size.M,Temperature.COLD,Sugar.HALF,Ice.LESS,1,List.of(),null);
+        var item=new Item(1L,Size.M,TempIce.LESS,Sugar.S5,1,List.of(),null);
         var request=new Create(UUID.randomUUID(),Source.TAKE_OUT,Payment.LINE_PAY,memberPhone,null,null,null,null,null,List.of(item));
         return as("test_staff",post("/api/orders").contentType("application/json").content(json.writeValueAsBytes(request)));
     }
@@ -212,7 +212,7 @@ class MemberApiTest {
     }
 
     @Test void deliveryOrderKeepsAddressAndDistanceAfterMemberChanges() throws Exception {
-        var item = new Item(1L, Size.M, Temperature.COLD, Sugar.HALF, Ice.LESS, 1, List.of(), null);
+        var item = new Item(1L, Size.M, TempIce.LESS, Sugar.S5, 1, List.of(), null);
         var request = new Create(UUID.randomUUID(), Source.PHONE_DELIVERY, Payment.LINE_PAY,
             "0900000001", null, new BigDecimal("1200"), null, "這張單的配送地址", null, List.of(item));
         var created = read(as("test_staff", post("/api/orders").contentType("application/json")

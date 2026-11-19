@@ -62,8 +62,8 @@ public class ConsumptionController {
 
                 UNION ALL
 
-                -- 3. 訂單加料消耗
-                SELECT o.business_date, t.inventory_id, SUM(oi.qty) AS qty
+                -- 3. 訂單加料消耗（同一種加兩份就算兩份，039）
+                SELECT o.business_date, t.inventory_id, SUM(oi.qty * oit.qty) AS qty
                 FROM pos_order o
                 JOIN order_item oi ON oi.order_id = o.order_id
                 JOIN order_item_topping oit ON oit.item_id = oi.item_id

@@ -90,8 +90,8 @@ ID 保留 BIGINT，避免縮小既有主鍵；金額與關聯依團隊 ER 圖調
   "receivedCash": 200,
   "note": "測試訂單",
   "items": [
-    {"productId": 1, "size": "L", "temperature": "COLD", "sugar": "HALF", "ice": "LESS", "qty": 2, "toppingIds": [1], "note": "兩杯相同"},
-    {"productId": 3, "size": "M", "temperature": "COLD", "sugar": "NORMAL", "ice": "NORMAL", "qty": 1, "toppingIds": [2]}
+    {"productId": 1, "size": "L", "tempIce": "LESS", "sugar": "S5", "qty": 2, "toppingIds": [1], "note": "兩杯相同"},
+    {"productId": 3, "size": "M", "tempIce": "NORMAL", "sugar": "S10", "qty": 1, "toppingIds": [2]}
   ]
 }
 ```
@@ -100,15 +100,16 @@ ID 保留 BIGINT，避免縮小既有主鍵；金額與關聯依團隊 ER 圖調
 同一員工、同 requestId、同內容只建一張訂單；換內容或員工重用 UUID 回 409。
 不要傳 `total`、`unitPrice`、`staffId`；後端不接受未定義欄位，避免誤以為可以指定價格或身份。
 `unit_price` 已含加料，不可再將 `price_at_order` 加到小計。
+同一種加料可以加多份（039）：`toppingIds` 裡同一個 ID 放兩次，例如 `[1,1]`。上限（040）：每種加料看菜單的 `toppings[].max_qty`，一杯全部加起來最多 5 份，超過回 400。
+客製選項（041）：菜單的 `options[]`（`option_id`、`name`、`max_qty`）是不用錢的選項；送單在品項加 `optionIds`（用法跟 `toppingIds` 一樣，可省略）。訂單明細的 `options[]` 有 `option_name`、`qty`。訂單明細的 `toppings[].qty` 是份數，`price_at_order` 是一份的價格。
 
 可選值：
 
 - source：`DINE_IN / TAKE_OUT / PHONE_DELIVERY / UBER_EATS`
 - payment：`CASH / CREDIT_CARD / LINE_PAY`；Uber Eats 僅作為訂單來源，新單不可選為付款方式。歷史資料的付款標記仍保留。
 - size：`M / L`
-- temperature：`COLD / WARM / HOT`
-- sugar：`NORMAL / LESS / HALF / LIGHT / NONE`
-- ice：`NORMAL / LESS / LIGHT / NONE`
+- tempIce（溫度冰量，038）：`HOT / WARM / ROOM / ICE_FREE / NO_ICE / LIGHT / LESS / NORMAL / EXTRA`（熱、溫、常溫、完全去冰、去冰、微冰、少冰、正常冰、多冰）
+- sugar（038）：`NONE / S0_5 / S1 / S3 / S5 / S7 / S10 / EXTRA`（無糖、0.5～10 分、多糖）
 - qty：1～100；每張最多 100 筆明細；額外加料目前每種一次，不支援半份／雙倍。
 
 選填欄位：`memberPhone`、`distance`、`duration`、`addressNote`、`note`。

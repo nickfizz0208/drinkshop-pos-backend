@@ -64,15 +64,19 @@ INSERT INTO pos_order (order_id,order_no,business_date,member_phone,source,payme
 -- Order 1: two large red teas + pearl at 40 each, plus one medium milk tea + jelly at 50.
 -- Order 3: cancelled before making, all stock returned.
 -- Order 4: made then wasted, refunded but stock NOT returned; photo optional.
-INSERT INTO order_item (item_id,order_id,product_id,product_name,size,temperature,sugar,ice,qty,unit_price,status,reason,approved_by,note) VALUES
- (1,1,1,'經典紅茶','L','COLD','HALF','LESS',2,40,'PENDING',NULL,NULL,'同規格兩杯'),
- (2,1,3,'經典奶茶','M','COLD','NORMAL','NORMAL',1,50,'PENDING',NULL,NULL,NULL),
- (3,2,5,'芒果冰沙','M','COLD','NORMAL','NORMAL',1,55,'MAKING',NULL,NULL,NULL),
- (4,3,2,'茉香綠茶','M','COLD','NONE','NONE',1,25,'CANCELLED','測試：尚未製作，客人取消',NULL,NULL),
- (5,4,4,'珍珠奶茶','L','COLD','HALF','LESS',1,60,'WASTED','測試：已製作棄單',2,NULL);
+INSERT INTO order_item (item_id,order_id,product_id,product_name,size,temp_ice,sugar,qty,unit_price,status,reason,approved_by,note) VALUES
+ (1,1,1,'經典紅茶','L','LESS','S5',2,40,'PENDING',NULL,NULL,'同規格兩杯'),
+ (2,1,3,'經典奶茶','M','NORMAL','S10',1,50,'PENDING',NULL,NULL,NULL),
+ (3,2,5,'芒果冰沙','M','NORMAL','S10',1,55,'MAKING',NULL,NULL,NULL),
+ (4,3,2,'茉香綠茶','M','NO_ICE','NONE',1,25,'CANCELLED','測試：尚未製作，客人取消',NULL,NULL),
+ (5,4,4,'珍珠奶茶','L','LESS','S5',1,60,'WASTED','測試：已製作棄單',2,NULL);
 
 INSERT INTO order_item_topping (item_id,topping_id,topping_name,price_at_order) VALUES
  (1,1,'珍珠',10),(2,2,'茶凍',10);
+
+INSERT INTO custom_option (option_id,name,max_qty,sort_order) VALUES
+ (1,'加酸',1,1),(2,'少料',1,2),(3,'加梅子',1,3),(4,'不加梅子',1,4);
+ALTER TABLE custom_option ALTER COLUMN option_id RESTART WITH 5;
 
 -- Apply the NET stock effects of the fixtures exactly once inside this transaction.
 -- Cancelled item 4 has zero net stock effect; wasted item 5 remains deducted.

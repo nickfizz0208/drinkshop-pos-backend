@@ -52,9 +52,12 @@ public class PosController {
         // 點餐菜單只列必要欄位，不能把扣料配方或帳號密碼雜湊傳給前端。
         // 容量價格（030）：price_m、price_l、price_bottle，null＝這杯不賣這個容量。
         // 停售的不列：自己停售，或用到的原料、半成品停售（028，見 SaleStatusRepository）。
-        return Map.of("products",repo.rows("SELECT p.product_id,p.name,p.category,p.price_m,p.price_l,p.price_bottle,p.hot_allowed FROM product p WHERE "
+        // 色系（032）：color_tone＝RED、ORANGE、YELLOW、GREEN、PURPLE、WHITE、CREAM、BROWN（紅橙黃綠紫白奶咖，BROWN 見 036），null＝前端依名稱、分類自動判斷。
+        return Map.of("products",repo.rows("SELECT p.product_id,p.name,p.category,p.price_m,p.price_l,p.price_bottle,p.hot_allowed,p.color_tone FROM product p WHERE "
                 +SaleStatusRepository.PRODUCT_SELLABLE+" ORDER BY p.product_id"),
-            "toppings",repo.rows("SELECT t.topping_id,t.name,t.price FROM topping t WHERE "+SaleStatusRepository.TOPPING_SELLABLE+" ORDER BY t.topping_id"));
+            "toppings",repo.rows("SELECT t.topping_id,t.name,t.price,t.max_qty FROM topping t WHERE "+SaleStatusRepository.TOPPING_SELLABLE+" ORDER BY t.topping_id"),
+            // 客製選項（041）：不用錢，照 sort_order 排
+            "options",repo.rows("SELECT option_id,name,max_qty FROM custom_option WHERE active=TRUE ORDER BY sort_order,option_id"));
     }
     @GetMapping("/rules")
     List<Map<String,Object>> rules() {

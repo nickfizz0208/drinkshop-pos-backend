@@ -33,17 +33,14 @@ public class OrderItem {
     @Column(name = "size", length = 10, nullable = false)
     private String size;
 
-    // 溫度屬性（COLD: 冷飲, WARM: 溫飲, HOT: 熱飲）
-    @Column(name = "temperature", length = 10, nullable = false)
-    private String temperature;
+    // 溫度冰量（038，原本的溫度、冰量合成一個）：HOT 熱, WARM 溫, ROOM 常溫, ICE_FREE 完全去冰,
+    // NO_ICE 去冰, LIGHT 微冰, LESS 少冰, NORMAL 正常冰, EXTRA 多冰
+    @Column(name = "temp_ice", length = 10, nullable = false)
+    private String tempIce;
 
-    // 甜度客製化（NORMAL: 正常糖, LESS: 少糖, HALF: 半糖, LIGHT: 微糖, NONE: 無糖）
+    // 甜度（038）：NONE 無糖, S0_5 0.5 分, S1 1 分, S3 3 分, S5 5 分, S7 7 分, S10 10 分, EXTRA 多糖
     @Column(name = "sugar", length = 10, nullable = false)
     private String sugar;
-
-    // 冰塊客製化（NORMAL: 正常冰, LESS: 少冰, LIGHT: 微冰, NONE: 去冰）
-    @Column(name = "ice", length = 10, nullable = false)
-    private String ice;
 
     // 購買杯數/數量
     @Column(name = "qty", nullable = false)
@@ -97,7 +94,7 @@ public class OrderItem {
     }
 
     public OrderItem(Long itemId, Long orderId, Long productId, String productName, String size,
-                     String temperature, String sugar, String ice, Integer qty, BigDecimal unitPrice,
+                     String tempIce, String sugar, Integer qty, BigDecimal unitPrice,
                      String status, String note, String reason, String photoPath, Long approvedBy,
                      LocalDateTime createdAt, LocalDateTime updatedAt, String deductedInventoryJson,
                      BigDecimal materialCost, BigDecimal refundAmount) {
@@ -106,9 +103,8 @@ public class OrderItem {
         this.productId = productId;
         this.productName = productName;
         this.size = size;
-        this.temperature = temperature;
+        this.tempIce = tempIce;
         this.sugar = sugar;
-        this.ice = ice;
         this.qty = qty;
         this.unitPrice = unitPrice;
         this.status = status;
@@ -163,12 +159,12 @@ public class OrderItem {
         this.size = size;
     }
 
-    public String getTemperature() {
-        return temperature;
+    public String getTempIce() {
+        return tempIce;
     }
 
-    public void setTemperature(String temperature) {
-        this.temperature = temperature;
+    public void setTempIce(String tempIce) {
+        this.tempIce = tempIce;
     }
 
     public String getSugar() {
@@ -177,14 +173,6 @@ public class OrderItem {
 
     public void setSugar(String sugar) {
         this.sugar = sugar;
-    }
-
-    public String getIce() {
-        return ice;
-    }
-
-    public void setIce(String ice) {
-        this.ice = ice;
     }
 
     public Integer getQty() {

@@ -29,11 +29,11 @@ public class RuleService {
     }
     public void validate(Item item,Map<String,Object> product) {
         if (!PosRepository.flag(product,"on_sale")) throw ApiException.conflict("飲料已下架");
-        if (item.temperature()!=com.example.drinkshop.dto.OrderRequests.Temperature.COLD) {
-            if (!PosRepository.flag(product,"hot_allowed")) throw ApiException.bad("此飲料不提供溫熱飲");
-            if (item.ice()!=com.example.drinkshop.dto.OrderRequests.Ice.NONE) throw ApiException.bad("溫熱飲不可加冰");
-        }
-        if (item.toppingIds().stream().distinct().count()!=item.toppingIds().size()) throw ApiException.bad("同一種額外加料不可重複");
+        // 溫度冰量合成一個欄位（038），溫熱飲本來就不會有冰量，只要檢查這杯能不能做溫熱飲
+        if (item.tempIce().hotOrWarm() && !PosRepository.flag(product,"hot_allowed")) throw ApiException.bad("此飲料不提供溫熱飲");
+        // 一杯的加料最多 5 份（040，全部加料的份數加起來）；每種加料自己的上限 topping.max_qty 在 OrderService 檢查
+        if (item.toppingIds().size()>com.example.drinkshop.dto.OrderRequests.MAX_TOPPINGS_PER_CUP)
+            throw ApiException.bad("一杯最多加 "+com.example.drinkshop.dto.OrderRequests.MAX_TOPPINGS_PER_CUP+" 份加料");
         // condition_json 決定何時套用；action_json 決定禁止、固定、上限或互斥的內容。
         // AUTO_ADJUST 在後端是檢查固定值是否正確，不會偷偷替前端改掉送單內容。
         for (var row:repo.rules()) {
@@ -51,13 +51,14 @@ public class RuleService {
                     var fields=action.get("set").fields();
                     while(fields.hasNext()) {
                         var field=fields.next();
-                        if (!value(field.getKey(),item).equals(field.getValue().asText())) throw ApiException.bad(message);
+                        if (!fixed(field.getKey(),field.getValue().asText(),item)) throw ApiException.bad(message);
                     }
                 }
                 case "MAX_COUNT" -> {
                     if (!"toppingIds".equals(action.path("field").asText()) || !action.path("maxDistinct").canConvertToInt())
                         throw ApiException.conflict("加料上限規則格式錯誤");
-                    if (item.toppingIds().size()>action.get("maxDistinct").asInt()) throw ApiException.bad(message);
+                    // 上限算的是加料種類，同一種加兩份只算一種
+                    if (item.toppingIds().stream().distinct().count()>action.get("maxDistinct").asInt()) throw ApiException.bad(message);
                 }
                 case "MUTEX" -> {
                     if (!action.path("toppingIds").isArray()) throw ApiException.conflict("互斥規則缺少加料群組");
@@ -79,10 +80,18 @@ public class RuleService {
             switch(field.getKey()) {
                 case "always" -> matches &= field.getValue().asBoolean();
                 case "category" -> matches &= field.getValue().asText().equals(product.get("category"));
+                // 舊規則：溫度 COLD/WARM/HOT（常溫、各種冰量都算 COLD）
                 case "temperatureIn" -> {
                     if(!field.getValue().isArray()) throw ApiException.conflict("溫度規則格式錯誤");
                     boolean found=false;
-                    for(var v:field.getValue()) found |= v.asText().equals(item.temperature().name());
+                    for(var v:field.getValue()) found |= v.asText().equals(item.tempIce().legacyTemperature());
+                    matches &= found;
+                }
+                // 新規則：直接寫溫度冰量（038）
+                case "tempIceIn" -> {
+                    if(!field.getValue().isArray()) throw ApiException.conflict("溫度冰量規則格式錯誤");
+                    boolean found=false;
+                    for(var v:field.getValue()) found |= v.asText().equals(item.tempIce().name());
                     matches &= found;
                 }
                 default -> throw ApiException.conflict("不支援的規則條件："+field.getKey());
@@ -90,11 +99,18 @@ public class RuleService {
         }
         return matches;
     }
-    private String value(String field,Item item) {
+    // 固定選項有沒有符合。新規則寫 tempIce、sugar；舊規則的 temperature、ice、舊甜度值換算後比對。
+    private boolean fixed(String field,String expected,Item item) {
         return switch(field) {
-            case "temperature" -> item.temperature().name();
-            case "sugar" -> item.sugar().name();
-            case "ice" -> item.ice().name();
+            case "tempIce" -> item.tempIce().name().equals(expected);
+            case "temperature" -> item.tempIce().legacyTemperature().equals(expected);
+            // 溫熱飲本來就不加冰，舊的「固定冰量」只檢查冷飲
+            case "ice" -> item.tempIce().hotOrWarm() || item.tempIce().legacyIce().equals(expected);
+            case "sugar" -> {
+                var sugar=com.example.drinkshop.dto.OrderRequests.Sugar.fromRule(expected);
+                if (sugar==null) throw ApiException.conflict("不支援的甜度："+expected);
+                yield item.sugar()==sugar;
+            }
             default -> throw ApiException.conflict("不支援的固定選項："+field);
         };
     }

@@ -30,11 +30,23 @@ public class OrderItemTopping {
     @Column(name = "topping_name", length = 30, nullable = false)
     private String toppingName;
 
-    // 下單當下之加料單價（保留歷史結帳價格）
+    // 份數：同一種加料可以加兩份（039）
+    @Column(name = "qty", nullable = false)
+    private Integer qty = 1;
+
+    // 下單當下之加料單價（一份的價格，保留歷史結帳價格）
     @Column(name = "price_at_order", precision = 10, scale = 2, nullable = false)
     private BigDecimal priceAtOrder;
 
     public OrderItemTopping() {
+    }
+
+    public Integer getQty() {
+        return qty;
+    }
+
+    public void setQty(Integer qty) {
+        this.qty = qty;
     }
 
     public OrderItemTopping(Long orderToppingId, Long itemId, Long toppingId, String toppingName, BigDecimal priceAtOrder) {

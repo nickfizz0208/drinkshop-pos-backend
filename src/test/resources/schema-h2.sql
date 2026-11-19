@@ -57,6 +57,7 @@ CREATE TABLE product (
   price_l DECIMAL(10,2) NULL,
   price_bottle DECIMAL(10,2) NULL,
   hot_allowed BOOLEAN NOT NULL DEFAULT TRUE,
+  color_tone ENUM('RED','ORANGE','YELLOW','GREEN','PURPLE','WHITE','CREAM','BROWN') NULL,
   recipe_steps TEXT NOT NULL,
   min_view_level ENUM('TRAINEE','STAFF','POS','MANAGER','HQ') NOT NULL DEFAULT 'TRAINEE',
   on_sale BOOLEAN NOT NULL DEFAULT TRUE,
@@ -102,9 +103,11 @@ CREATE TABLE topping (
   inventory_id BIGINT NULL,
   prep_id BIGINT NULL,
   on_sale BOOLEAN NOT NULL DEFAULT TRUE,
+  max_qty INT NOT NULL DEFAULT 2,
   FOREIGN KEY (inventory_id) REFERENCES inventory(inventory_id),
   FOREIGN KEY (prep_id) REFERENCES prep_item(prep_id),
   CHECK (price >= 0),
+  CHECK (max_qty BETWEEN 1 AND 5),
   CHECK ((inventory_id IS NULL) <> (prep_id IS NULL))
 );
 
@@ -187,9 +190,8 @@ CREATE TABLE order_item (
   product_id BIGINT NOT NULL,
   product_name VARCHAR(50) NOT NULL COMMENT 'Name at purchase',
   size ENUM('M','L','BOTTLE') NOT NULL,
-  temperature ENUM('COLD','WARM','HOT') NOT NULL,
-  sugar ENUM('NORMAL','LESS','HALF','LIGHT','NONE') NOT NULL,
-  ice ENUM('NORMAL','LESS','LIGHT','NONE') NOT NULL,
+  temp_ice ENUM('HOT','WARM','ROOM','ICE_FREE','NO_ICE','LIGHT','LESS','NORMAL','EXTRA') NOT NULL,
+  sugar ENUM('NONE','S0_5','S1','S3','S5','S7','S10','EXTRA') NOT NULL,
   qty INT NOT NULL,
   unit_price DECIMAL(10,2) NOT NULL COMMENT 'Final per-cup price INCLUDING all toppings',
   status ENUM('PENDING','MAKING','DONE','PICKED_UP','CANCELLED','WASTED') NOT NULL DEFAULT 'PENDING',
@@ -214,11 +216,33 @@ CREATE TABLE order_item_topping (
   item_id BIGINT NOT NULL,
   topping_id BIGINT NOT NULL,
   topping_name VARCHAR(30) NOT NULL COMMENT 'Name at purchase',
-  price_at_order DECIMAL(10,2) NOT NULL COMMENT 'Per-cup add-on price; already included in order_item.unit_price',
+  qty INT NOT NULL DEFAULT 1 COMMENT 'Portions of this topping per cup (039)',
+  price_at_order DECIMAL(10,2) NOT NULL COMMENT 'Per-portion add-on price; already included in order_item.unit_price',
   CONSTRAINT uq_order_item_topping UNIQUE (item_id, topping_id),
+  CHECK (qty >= 1),
   FOREIGN KEY (item_id) REFERENCES order_item(item_id),
   FOREIGN KEY (topping_id) REFERENCES topping(topping_id),
   CHECK (price_at_order >= 0)
+);
+-- 041：不用錢的客製選項
+CREATE TABLE custom_option (
+  option_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(30) NOT NULL UNIQUE,
+  max_qty INT NOT NULL DEFAULT 1,
+  sort_order INT NOT NULL DEFAULT 0,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  CHECK (max_qty BETWEEN 1 AND 5)
+);
+CREATE TABLE order_item_option (
+  order_option_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  item_id BIGINT NOT NULL,
+  option_id BIGINT NOT NULL,
+  option_name VARCHAR(30) NOT NULL,
+  qty INT NOT NULL DEFAULT 1,
+  CONSTRAINT uq_order_item_option UNIQUE (item_id, option_id),
+  FOREIGN KEY (item_id) REFERENCES order_item(item_id),
+  FOREIGN KEY (option_id) REFERENCES custom_option(option_id),
+  CHECK (qty >= 1)
 );
 ALTER TABLE pos_order ADD COLUMN request_hash CHAR(64);
 ALTER TABLE order_item ADD COLUMN deducted_inventory_json JSON;

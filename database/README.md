@@ -45,6 +45,7 @@ MySQL 的 DDL 不具整批回滾能力；若建表中途失敗，先檢查已完
 - 一張 `pos_order` 包含多筆 `order_item`；每筆為同商品、杯型、冰甜、加料、備註及製作狀態，`qty` 可大於 1。
 - 同筆明細一起取消或轉損耗。只取消其中一杯的功能，需先拆分明細及其加料，尚未實作。
 - `unit_price` 是含所有加料的每杯最終價。明細金額 = `qty * unit_price`；`price_at_order` 僅核對加價，不得再加一次。
+- 飲品色系 `product.color_tone`（032）：RED、ORANGE、YELLOW、GREEN、PURPLE、WHITE、CREAM、BROWN（紅橙黃綠紫白奶咖；BROWN 是 036 加的），NULL＝前端依名稱、分類自動判斷；只存色系，色碼在前端。
 - 飲品價格依容量分開記：`product.price_m`（中杯）、`price_l`（大杯）、`price_bottle`（瓶），NULL＝不賣這個容量（030）。額外加料每種一次；半份、雙倍未納入。
 - 珍奶配方已含一份珍珠；若額外選珍珠，需再扣一份，並再加價。
 - `recipe_json` 使用 `M`、`L` 分開列原料 ID 及每杯用量，含紙杯；這是結構化扣料資料，製作文字另放 `recipe_steps`。
@@ -237,3 +238,59 @@ UPDATE product SET price_l = 55, price_m = 45 WHERE name = '錫蘭奶茶';
 -- 不賣瓶裝
 UPDATE product SET price_bottle = NULL WHERE name = '錫蘭奶茶';
 ```
+
+## 飲品色系（032）
+
+`032_product_color_tone.sql`：`product` 加上 `color_tone`，依顏色區分（ENUM）：`RED` 紅（紅茶色）、`ORANGE` 橙、`YELLOW` 黃、`GREEN` 綠、`PURPLE` 紫、`WHITE` 白、`CREAM` 奶；NULL＝未設定。點餐頁的飲品卡背景、杯子插圖依這個欄位配色；NULL 時前端照名稱、分類自動判斷（冰沙→YELLOW、奶茶→CREAM、名稱有「綠茶」→GREEN、其他→RED），所以執行後畫面不會變。
+
+只存色系、不存色碼：一個色系有 4 個彼此搭配的顏色，色碼由前端統一管理。目前還沒有修改畫面，要設定請用 SQL：
+
+```sql
+UPDATE product SET color_tone = 'CREAM' WHERE name IN ('紅茶拿鐵', '鐵觀音拿鐵');
+UPDATE product SET color_tone = NULL WHERE name = '紅茶拿鐵';   -- 改回自動判斷
+```
+
+新版後端的菜單 API 會讀這個欄位，**部署新版後端前一定要先執行 032**。需要先執行 031。如果之前執行過舊版 032（TEA、GREEN、MILK、FRUIT），改用檔案裡註解掉的轉換段落。
+
+`033_tea_color_tone.sql`：先設定茶類的色系，依名稱：有「金萱」→黃、有「青茶／清茶／蕎麥」→橙、有「綠茶」→綠、其他茶類→紅。其他分類維持 NULL（前端自動判斷）。可重複執行，需要先執行 032。
+
+## 其他分類商品（034）
+
+`034_other_items.sql`：新增「其他」分類的購物袋（$1）、保冷袋（單）（$5）、保冷袋（雙）（$10）。只有一種價格，記在 `price_m`；`color_tone = 'WHITE'`。可重複執行，需要先執行 032。
+
+分類就是 `product.category` 的文字，沒有另外的分類表：「特調」「芝芝」要等新增了那兩類的商品才會出現在點餐頁。
+
+## 特調、芝芝飲品（035）
+
+`035_menu_special_cheese.sql`：新增門市菜單的經典特調 3 杯（分類「特調」：梅子冰茶、梅子綠茶、養樂多綠茶）與芝芝系列 4 杯（分類「芝芝」：芝芝金萱、芝芝金萱雙Q、開心果椰水、開心果可可），價格照菜單的 M／L／瓶，沒有的容量是 NULL。可重複執行，需要先執行 030。先不建配方；梅子冰茶的「甜度冰量固定」還沒加規則。
+
+## 咖色（036）
+
+`036_color_tone_brown.sql`：`color_tone` 多一個 `BROWN`（咖）。已經執行過 032 的資料庫要再執行這支，才能填 BROWN。可重複執行。
+
+## 菜單加料（037）
+
+`037_menu_toppings.sql`：新增菜單「添加口感」的 10 種加料：+$10 波霸、椰果、雙Q果、波波、紅萱粉粿、綠茶凍、開心果脆脆；+$20 金絨芝芝、芝芝；+$35 開心果芝芝。每種加料要對應原料或半成品：有同名半成品就用半成品，否則用同名原料，都沒有就先建原料（單位「份」、帳面 0、分類「底料」）。可重複執行，需要先執行 029。「限冷飲」規則、和現有珍珠、茶凍的重複還沒處理。
+
+## 溫度冰量、甜度（038）
+
+`038_temp_ice_sugar.sql`：`order_item` 的溫度 `temperature`、冰量 `ice` 合成一個 `temp_ice`（HOT 熱、WARM 溫、ROOM 常溫、ICE_FREE 完全去冰、NO_ICE 去冰、LIGHT 微冰、LESS 少冰、NORMAL 正常冰、EXTRA 多冰）；甜度 `sugar` 改成 NONE 無糖、S0_5、S1、S3、S5、S7、S10（幾分糖）、EXTRA 多糖。舊訂單照對應換算（熱→HOT、溫→WARM、冷飲依冰量；正常糖→S10、少→S7、半→S5、微→S3）。
+
+**這版後端需要 038，而且舊版後端在 038 之後無法送單**：038、新版後端、新版前端要一起上線。`conflict_rule` 不用改，舊規則會換算後比對；新規則可以寫 `tempIceIn`、`set.tempIce`。
+
+## 加料份數（039）
+
+`039_topping_qty.sql`：`order_item_topping` 加上 `qty`（份數，舊資料都是 1）。同一種加料可以加多份（上限見 040），存成同一筆、`qty` 記份數；`price_at_order` 是一份的價格。送單時 `toppingIds` 裡同一個 ID 出現兩次就是兩份。**這版後端需要 039**，需要先執行 038。
+
+## 加料上限（040）
+
+`040_topping_max_qty.sql`：`topping` 加上 `max_qty`（這種加料一杯最多幾份，1～5，預設 2）。一杯全部加料加起來最多 5 份（程式固定）。`conflict_rule` 裡的「加料最多三種」規則如果還在，會另外限制種類數，不需要就刪掉（檔案裡有查詢與刪除範例）。**這版後端需要 040**，需要先執行 039。
+
+## 客製選項（041）
+
+`041_custom_options.sql`：新增 `custom_option`（不用錢的客製選項：加酸、少料、加梅子、不加梅子；`max_qty` 一杯最多幾份、預設 1；`sort_order` 順序；`active` 停用）與 `order_item_option`（每杯選了哪些，存當時名稱與份數）。客製選項不用錢、沒有衝突規則、不扣原料。可重複執行，**這版後端需要 041**，需要先執行 040。
+
+## 限冷飲加料規則（042）
+
+`042_cold_only_toppings.sql`：新增一條 `conflict_rule`（FORBID）：熱、溫、常溫時不能加紅萱粉粿、綠茶凍（菜單標「限冷飲」）。用名稱找加料 ID，可重複執行；需要先執行 037、038。只要擋熱、溫的話，執行前把檔案裡的 `'ROOM'` 拿掉。
+
