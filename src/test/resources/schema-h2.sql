@@ -206,7 +206,6 @@ CREATE TABLE order_item (
   FOREIGN KEY (approved_by) REFERENCES staff_account(staff_id),
   INDEX idx_item_order_status (order_id, status),
   CHECK (qty > 0 AND unit_price >= 0),
-  CHECK (temperature = 'COLD' OR ice = 'NONE'),
   CHECK (status NOT IN ('CANCELLED','WASTED') OR (reason IS NOT NULL AND CHAR_LENGTH(TRIM(reason)) > 0)),
   CHECK (status <> 'WASTED' OR approved_by IS NOT NULL)
 );

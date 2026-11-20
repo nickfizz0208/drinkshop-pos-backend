@@ -19,7 +19,9 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 import static com.example.drinkshop.TestLogin.login;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -60,11 +62,14 @@ public class ClosingWastageRegressionTest {
     @Autowired
     private ObjectMapper mapper;
 
+    @Autowired
+    private Clock clock;
+
     @org.springframework.boot.test.context.TestConfiguration
     static class TestClock {
         @org.springframework.context.annotation.Bean @org.springframework.context.annotation.Primary
-        java.time.Clock fixedClock() {
-            return java.time.Clock.fixed(java.time.Instant.parse("2026-10-28T03:00:00Z"),java.time.ZoneId.of("Asia/Taipei"));
+        Clock fixedClock() {
+            return Clock.fixed(java.time.Instant.parse("2026-10-28T03:00:00Z"),java.time.ZoneId.of("Asia/Taipei"));
         }
     }
 
@@ -205,7 +210,8 @@ public class ClosingWastageRegressionTest {
         mockMvc.perform(post("/api/daily-shifts/open").with(login(POS_USER,TEST_PASS))
             .contentType(MediaType.APPLICATION_JSON).content("{\"businessDate\":\"2027-05-20\",\"pettyCash\":0,\"staffId\":10}"))
             .andExpect(status().isCreated()).andExpect(jsonPath("$.openedBy").value(10));
-        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES ('2027-05-20', 10, CURRENT_TIMESTAMP)");
+        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES ('2027-05-20', 10, ?)",
+            LocalDateTime.now(clock).minusHours(1));
         mockMvc.perform(post("/api/daily-shifts/close").with(login(POS_USER,TEST_PASS))
             .contentType(MediaType.APPLICATION_JSON).content("{\"businessDate\":\"2027-05-20\",\"countedCash\":0,\"staffId\":10}"))
             .andExpect(status().isOk());
@@ -219,7 +225,8 @@ public class ClosingWastageRegressionTest {
         org.junit.jupiter.api.Assertions.assertEquals(0,before.compareTo(jdbc.queryForObject("SELECT book_qty FROM inventory WHERE inventory_id=1",BigDecimal.class)));
     }
     @Test void cashDifferenceNeedsReasonAndFailedClosingDoesNotCloseShift() throws Exception {
-        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES ('2026-10-28', 10, CURRENT_TIMESTAMP)");
+        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES ('2026-10-28', 10, ?)",
+            LocalDateTime.now(clock).minusHours(1));
         mockMvc.perform(post("/api/daily-shifts/close").with(login(POS_USER,TEST_PASS))
             .contentType(MediaType.APPLICATION_JSON).content("{\"businessDate\":\"2026-10-28\",\"countedCash\":999,\"staffId\":10}"))
             .andExpect(status().isBadRequest());
