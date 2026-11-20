@@ -100,6 +100,9 @@ public class SecurityConfig {
                 .requestMatchers("/api/shift-staff", "/api/shift-staff/**",
                     "/api/inventory-counts", "/api/inventory-counts/**")
                     .hasAnyRole("TRAINEE", "STAFF", "MANAGER", "HQ")
+                // 物料消耗統計：只限店長、總部查看（POS 共用帳號與一般員工不可看）
+                .requestMatchers("/api/inventory-consumption", "/api/inventory-consumption/**")
+                    .hasAnyRole("MANAGER", "HQ")
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().denyAll()).build();
     }
