@@ -102,6 +102,7 @@ ID 保留 BIGINT，避免縮小既有主鍵；金額與關聯依團隊 ER 圖調
 `unit_price` 已含加料，不可再將 `price_at_order` 加到小計。
 同一種加料可以加多份（039）：`toppingIds` 裡同一個 ID 放兩次，例如 `[1,1]`。上限（040）：每種加料看菜單的 `toppings[].max_qty`，一杯全部加起來最多 5 份，超過回 400。
 客製選項（041）：菜單的 `options[]`（`option_id`、`name`、`max_qty`）是不用錢的選項；送單在品項加 `optionIds`（用法跟 `toppingIds` 一樣，可省略）。訂單明細的 `options[]` 有 `option_name`、`qty`。訂單明細的 `toppings[].qty` 是份數，`price_at_order` 是一份的價格。
+組合與首份免費（046）：菜單的 `products[].main`、`toppings[].free`；分類是奶茶、鮮奶的飲品，照 `toppingIds` 順序第一份 free 加料不用錢，訂單明細的 `toppings[].free_qty` 是免費的份數。
 
 可選值：
 

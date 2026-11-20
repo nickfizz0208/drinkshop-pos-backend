@@ -40,6 +40,7 @@ CREATE TABLE inventory (
   reported_at DATETIME(6) NULL,
   unit_cost DECIMAL(10,2) NULL,
   on_sale BOOLEAN NOT NULL DEFAULT TRUE,
+  show_in_sale BOOLEAN NOT NULL DEFAULT TRUE,
   category VARCHAR(20) NULL,
   FOREIGN KEY (reported_by) REFERENCES staff_account(staff_id),
   CHECK (book_qty >= 0 AND safety_stock >= 0),
@@ -57,10 +58,12 @@ CREATE TABLE product (
   price_l DECIMAL(10,2) NULL,
   price_bottle DECIMAL(10,2) NULL,
   hot_allowed BOOLEAN NOT NULL DEFAULT TRUE,
+  main BOOLEAN NOT NULL DEFAULT FALSE,
   color_tone ENUM('RED','ORANGE','YELLOW','GREEN','PURPLE','WHITE','CREAM','BROWN') NULL,
   recipe_steps TEXT NOT NULL,
   min_view_level ENUM('TRAINEE','STAFF','POS','MANAGER','HQ') NOT NULL DEFAULT 'TRAINEE',
   on_sale BOOLEAN NOT NULL DEFAULT TRUE,
+  show_in_sale BOOLEAN NOT NULL DEFAULT TRUE,
   CHECK ((price_m IS NULL OR price_m >= 0) AND (price_l IS NULL OR price_l >= 0) AND (price_bottle IS NULL OR price_bottle >= 0)),
   CHECK (price_m IS NOT NULL OR price_l IS NOT NULL OR price_bottle IS NOT NULL)
 );
@@ -71,15 +74,26 @@ CREATE TABLE prep_item (
   name VARCHAR(30) NOT NULL,
   steps TEXT NULL,
   on_sale BOOLEAN NOT NULL DEFAULT TRUE,
+  show_in_sale BOOLEAN NOT NULL DEFAULT TRUE,
   category VARCHAR(20) NULL,
   CONSTRAINT uq_prep_item_name UNIQUE (name)
 );
+-- 043：材料可以是原料（inventory_id）或另一個半成品（sub_prep_id），qty＝做一份半成品的用量；044：link＝停售連不連動
 CREATE TABLE prep_item_ingredient (
+  line_id BIGINT PRIMARY KEY AUTO_INCREMENT,
   prep_id BIGINT NOT NULL,
-  inventory_id BIGINT NOT NULL,
-  PRIMARY KEY (prep_id, inventory_id),
+  inventory_id BIGINT NULL,
+  sub_prep_id BIGINT NULL,
+  qty DECIMAL(10,2) NOT NULL DEFAULT 1,
+  link BOOLEAN NOT NULL DEFAULT TRUE,
   CONSTRAINT fk_prep_ingredient_prep FOREIGN KEY (prep_id) REFERENCES prep_item(prep_id),
-  CONSTRAINT fk_prep_ingredient_inventory FOREIGN KEY (inventory_id) REFERENCES inventory(inventory_id)
+  CONSTRAINT fk_prep_ingredient_inventory FOREIGN KEY (inventory_id) REFERENCES inventory(inventory_id),
+  CONSTRAINT fk_prep_ingredient_sub_prep FOREIGN KEY (sub_prep_id) REFERENCES prep_item(prep_id),
+  CONSTRAINT uq_prep_ingredient_inventory UNIQUE (prep_id, inventory_id),
+  CONSTRAINT uq_prep_ingredient_sub_prep UNIQUE (prep_id, sub_prep_id),
+  CONSTRAINT chk_prep_ingredient_one CHECK ((inventory_id IS NULL) <> (sub_prep_id IS NULL)),
+  CONSTRAINT chk_prep_ingredient_not_self CHECK (sub_prep_id IS NULL OR sub_prep_id <> prep_id),
+  CONSTRAINT chk_prep_ingredient_qty CHECK (qty > 0)
 );
 CREATE TABLE product_recipe (
   line_id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -103,7 +117,9 @@ CREATE TABLE topping (
   inventory_id BIGINT NULL,
   prep_id BIGINT NULL,
   on_sale BOOLEAN NOT NULL DEFAULT TRUE,
+  show_in_sale BOOLEAN NOT NULL DEFAULT TRUE,
   max_qty INT NOT NULL DEFAULT 2,
+  free BOOLEAN NOT NULL DEFAULT FALSE,
   FOREIGN KEY (inventory_id) REFERENCES inventory(inventory_id),
   FOREIGN KEY (prep_id) REFERENCES prep_item(prep_id),
   CHECK (price >= 0),
@@ -217,6 +233,7 @@ CREATE TABLE order_item_topping (
   topping_id BIGINT NOT NULL,
   topping_name VARCHAR(30) NOT NULL COMMENT 'Name at purchase',
   qty INT NOT NULL DEFAULT 1 COMMENT 'Portions of this topping per cup (039)',
+  free_qty INT NOT NULL DEFAULT 0 COMMENT 'Portions charged 0 (046)',
   price_at_order DECIMAL(10,2) NOT NULL COMMENT 'Per-portion add-on price; already included in order_item.unit_price',
   CONSTRAINT uq_order_item_topping UNIQUE (item_id, topping_id),
   CHECK (qty >= 1),

@@ -30,7 +30,7 @@ Workbench 預設開啟 Safe Updates，會擋下 006 的 UPDATE（Error 1175）�
 12. 執行 [`026_recipe_upgrade_workbench.sql`](026_recipe_upgrade_workbench.sql)。這支合併檔取代分開執行的 021 和 022_recipe_portions。既有庫先確認 020 以前的版本，再執行合併檔。
 13. 有載入 002 示範菜單的資料庫可執行 [`027_demo_recipe_portions.sql`](027_demo_recipe_portions.sql)，補齊五款示範飲品的八筆空白材料份數。
 14. 依序執行 028_sale_status、029_material_category、030_product_size_prices、031_menu_tea_milk。028_sale_status、029、030 含 DDL，部分套用後應先核對欄位、價格與訂單容量，再接續未完成的步驟。
-15. 依序執行 032–042（飲品色系、茶類色系、其他商品、特調芝芝、咖色、菜單加料、溫度冰量甜度、加料份數、加料上限、客製選項、限冷飲加料），說明見下方各節。這版後端需要 032、038、039、040、041。
+15. 依序執行 032–046（飲品色系、茶類色系、其他商品、特調芝芝、咖色、菜單加料、溫度冰量甜度、加料份數、加料上限、客製選項、限冷飲加料、半成品用半成品做、材料停售連動、停售管理頁顯示、組合飲品），說明見下方各節。這版後端需要 032、038、039、040、041、043、044、045、046。
 
 **舊檔名對照**：原 `022_sale_status.sql` → `028_sale_status.sql`、`023_material_category.sql` → `029_material_category.sql`、`024_product_size_prices.sql` → `030_product_size_prices.sql`、`025_menu_tea_milk.sql` → `031_menu_tea_milk.sql`。若某一步已用舊檔名套用，勿因改名重跑。`022_recipe_portions.sql` 是另一支配方升級檔，編號維持原樣。
 
@@ -48,7 +48,7 @@ MySQL 的 DDL 不具整批回滾能力；若建表中途失敗，先檢查已完
 
 - 一張 `pos_order` 包含多筆 `order_item`；每筆為同商品、杯型、冰甜、加料、備註及製作狀態，`qty` 可大於 1。
 - 同筆明細一起取消或轉損耗。只取消其中一杯的功能，需先拆分明細及其加料，尚未實作。
-- `unit_price` 是含所有加料的每杯最終價。明細金額 = `qty * unit_price`；`price_at_order` 僅核對加價，不得再加一次。
+- `unit_price` 是含所有加料的每杯最終價（已扣掉首份免費的加料，046）。明細金額 = `qty * unit_price`；`price_at_order` 僅核對加價，不得再加一次。
 - 飲品色系 `product.color_tone`（032）：RED、ORANGE、YELLOW、GREEN、PURPLE、WHITE、CREAM、BROWN（紅橙黃綠紫白奶咖；BROWN 是 036 加的），NULL＝前端依名稱、分類自動判斷；只存色系，色碼在前端。
 - 飲品價格依容量分開記：`product.price_m`（中杯）、`price_l`（大杯）、`price_bottle`（瓶），NULL＝不賣這個容量（030）。同一種加料可以加多份，存成同一筆、`qty` 記份數（039）；每種的上限記在 `topping.max_qty`，一杯全部加料最多 5 份（040）。
 - 珍奶配方已含一份珍珠；若額外選珍珠，需再扣一份，並再加價。
@@ -298,3 +298,35 @@ UPDATE product SET color_tone = NULL WHERE name = '紅茶拿鐵';   -- 改回自
 
 `042_cold_only_toppings.sql`：新增一條 `conflict_rule`（FORBID）：熱、溫、常溫時不能加紅萱粉粿、綠茶凍（菜單標「限冷飲」）。用名稱找加料 ID，可重複執行；需要先執行 037、038。只要擋熱、溫的話，執行前把檔案裡的 `'ROOM'` 拿掉。
 
+## 半成品用半成品做（043）
+
+`043_prep_sub_prep.sql`：`prep_item_ingredient` 一列是半成品用到的一項材料，可以是原料（`inventory_id`）或另一個半成品（`sub_prep_id`，兩個只能填一個），`qty` 是做一份半成品的用量（原料用基本單位、半成品用份；舊資料都是 1）。主鍵改成流水號 `line_id`。例如雙Q果＝熟波霸（半成品，由生波霸做成）0.5 份＋椰果 0.5。
+
+- 停售連動：由每項材料的 `link` 決定（044）。
+- 消耗報表：半成品照用量展開成原料、一層層相乘；加料是半成品的（例如茶凍、雙Q果）以前不算消耗，現在也會算。
+- 消耗報表最多往下追 3 層，更深的不算；不要建繞圈（A 用 B、B 又用 A）。目前只能用 SQL 設定半成品的材料，檔案最後有雙Q果的範例。
+
+**這版後端需要 043**，只能執行一次，需要先執行 028。
+
+## 材料停售連動（044）
+
+`044_prep_ingredient_link.sql`：`prep_item_ingredient` 加上 `link`（預設 TRUE）。
+
+- `TRUE`：這項材料停售時，半成品跟著不能賣；材料是半成品的會一路往上連動（最多 3 層），例如生波霸 → 熟波霸 → 雙Q果。
+- `FALSE`：這項材料停售不影響這個半成品。例如綠茶凍用綠茶（茶湯）做，但綠茶凍是事先做好的，綠茶賣完綠茶凍照賣，賣完再手動停售。
+
+只影響停售，消耗報表照樣算到原料。停售管理頁的半成品會顯示「由 珍珠、茶凍（不連動） 做成」。目前只能用 SQL 設定，檔案裡有綠茶凍的範例。可重複執行，**這版後端需要 044**，需要先執行 043。
+
+## 停售管理頁顯示（045）
+
+`045_show_in_sale.sql`：`product`、`prep_item`、`inventory`、`topping` 加上 `show_in_sale`（預設 TRUE）。FALSE＝不出現在停售管理頁（例如紙杯、吸管這種不會停售的包材）。只是不顯示：停售連動照常，點餐菜單也不受影響。欄位不叫 `show`，因為 SHOW 是 MySQL 保留字。可重複執行，**這版後端需要 045**，需要先執行 028。
+
+## 組合飲品、首份免費加料（046）
+
+`046_free_topping_combo.sql`：`topping.free`（可以組合的加料，只放 10 元的料）、`product.main`（可以當組合底的飲品）、`order_item_topping.free_qty`（這筆加料有幾份免費）。
+
+- 點餐頁的「奶茶」「鮮奶」分類，在每杯 main 飲品後面排出「{加料}{飲料}」（例如波霸紅茶拿鐵），顏色跟 main 飲品一樣。點了就是 main 飲品先加好一份那個加料，不會新增飲品資料；規則照常會鎖。
+- 分類是奶茶、鮮奶的飲品，照加入順序第一份 free 加料不用錢（不管是不是從組合點的），第二份以後照原價。分類寫在後端 `OrderRequests.FREE_TOPPING_CATEGORIES`、前端 `FREE_TOPPING_CATEGORIES`。
+- 這杯加料收的錢＝`price_at_order ×（qty − free_qty）`，已算在 `order_item.unit_price` 裡。
+
+可重複執行，**這版後端需要 046**，需要先執行 039。

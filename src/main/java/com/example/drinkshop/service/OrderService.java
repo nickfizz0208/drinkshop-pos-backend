@@ -1,5 +1,6 @@
 package com.example.drinkshop.service;
 
+import com.example.drinkshop.dto.OrderRequests;
 import com.example.drinkshop.dto.OrderRequests.*;
 import com.example.drinkshop.entity.Staff;
 import com.example.drinkshop.exception.ApiException;
@@ -75,6 +76,11 @@ public class OrderService {
             // 同一種加料可以加兩份（039）：照加入順序合成「哪一種、幾份」，每份都算錢
             var counts=new LinkedHashMap<Long,Integer>();
             for (long id:item.toppingIds()) counts.merge(id,1,Integer::sum);
+            // 首份免費（046）：奶茶、鮮奶分類的飲品，第一份 free 加料（照加入順序）不用錢
+            Long freeToppingId=null;
+            if (OrderRequests.FREE_TOPPING_CATEGORIES.contains(String.valueOf(product.get("category")))) {
+                for (long id:item.toppingIds()) if (flag(repo.topping(id),"free")) { freeToppingId=id; break; }
+            }
             var toppings=new ArrayList<Map<String,Object>>();
             for (var entry:counts.entrySet()) {
                 long id=entry.getKey(); int count=entry.getValue();
@@ -85,8 +91,10 @@ public class OrderService {
                 if (count>max) throw ApiException.bad("「"+topping.get("name")+"」最多加 "+max+" 份");
                 var toppingStopped=sale.stoppedMaterialsOfTopping(id);
                 if (!toppingStopped.isEmpty()) throw ApiException.conflict("加料「"+topping.get("name")+"」已停售（"+String.join("、",toppingStopped)+" 停售）");
-                price=price.add(Money.from(topping,"price").multiply(BigDecimal.valueOf(count)));
+                int freeQty=Long.valueOf(id).equals(freeToppingId) ? 1 : 0;
+                price=price.add(Money.from(topping,"price").multiply(BigDecimal.valueOf(count-freeQty)));
                 topping.put("qty",count);
+                topping.put("free_qty",freeQty);
                 toppings.add(topping);
             }
             // 客製選項（041）：不用錢、沒有衝突規則，只檢查選項存在、還在用、份數不超過 custom_option.max_qty
@@ -129,9 +137,9 @@ public class OrderService {
                 VALUES (?,?,?,?,?,?,?,?,'PENDING',?)
                 """,orderId,item.productId(),line.product().get("name"),item.size().name(),item.tempIce().name(),
                 item.sugar().name(),item.qty(),line.price(),item.note());
-            // price_at_order 是一份的價格，qty 是份數（039）
-            for(var topping:line.toppings()) repo.update("INSERT INTO order_item_topping(item_id,topping_id,topping_name,qty,price_at_order) VALUES (?,?,?,?,?)",
-                itemId,topping.get("topping_id"),topping.get("name"),topping.get("qty"),topping.get("price"));
+            // price_at_order 是一份的價格，qty 是份數（039），free_qty 是其中免費的份數（046）
+            for(var topping:line.toppings()) repo.update("INSERT INTO order_item_topping(item_id,topping_id,topping_name,qty,free_qty,price_at_order) VALUES (?,?,?,?,?,?)",
+                itemId,topping.get("topping_id"),topping.get("name"),topping.get("qty"),topping.get("free_qty"),topping.get("price"));
             // 客製選項存當時的名稱與份數（041）
             for(var option:line.options()) repo.update("INSERT INTO order_item_option(item_id,option_id,option_name,qty) VALUES (?,?,?,?)",
                 itemId,option.get("option_id"),option.get("name"),option.get("qty"));

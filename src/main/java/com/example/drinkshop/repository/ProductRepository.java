@@ -50,12 +50,14 @@ public class ProductRepository {
         return new HashSet<>(jdbc.queryForList("SELECT DISTINCT product_id FROM product_recipe", Long.class));
     }
 
-    /** 一杯飲品的材料清單：一列是原料或半成品；半成品附上它由哪些原料做成（以「、」分隔）。 */
+    /** 一杯飲品的材料清單：一列是原料或半成品；半成品附上它由哪些原料、半成品（043）做成（以「、」分隔）。 */
     public List<Map<String, Object>> materials(long productId) {
         return jdbc.queryForList("""
             SELECT r.inventory_id, r.prep_id, r.portions, COALESCE(i.name, x.name) AS name,
-                   (SELECT GROUP_CONCAT(pi.name ORDER BY pi.inventory_id SEPARATOR '、')
-                      FROM prep_item_ingredient g JOIN inventory pi ON pi.inventory_id = g.inventory_id
+                   (SELECT GROUP_CONCAT(COALESCE(pi.name, sp.name) ORDER BY g.line_id SEPARATOR '、')
+                      FROM prep_item_ingredient g
+                      LEFT JOIN inventory pi ON pi.inventory_id = g.inventory_id
+                      LEFT JOIN prep_item sp ON sp.prep_id = g.sub_prep_id
                      WHERE g.prep_id = r.prep_id) AS made_from
             FROM product_recipe r
             LEFT JOIN inventory i ON i.inventory_id = r.inventory_id

@@ -28,6 +28,7 @@ import java.time.*;
 import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.*;
+import static org.hamcrest.Matchers.contains;
 import static org.junit.jupiter.api.Assertions.*;
 import static com.example.drinkshop.TestLogin.login;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -207,6 +208,25 @@ class PosIntegrationTest {
         long itemId=order.get("items").get(0).get("item_id").asLong();
         assertEquals(2,jdbc.queryForObject("SELECT qty FROM order_item_topping WHERE item_id=? AND topping_id=1",Integer.class,itemId));
         assertEquals(2,order.get("items").get(0).get("toppings").get(0).get("qty").asInt());
+    }
+    @Test void firstFreeToppingIsFreeForMilkTeaAndLatte() throws Exception {
+        // 046：奶茶、鮮奶分類的飲品，第一份 free 加料不用錢；其他分類照原價
+        jdbc.update("UPDATE topping SET free=TRUE WHERE topping_id=1");
+        jdbc.update("UPDATE product SET main=TRUE WHERE product_id=3");
+        mvc.perform(get("/api/menu").with(login("test_staff",PASSWORD)))
+            .andExpect(jsonPath("$.products[?(@.product_id==3)].main",contains(true)))
+            .andExpect(jsonPath("$.products[?(@.product_id==1)].main",contains(false)))
+            .andExpect(jsonPath("$.toppings[?(@.topping_id==1)].free",contains(true)))
+            .andExpect(jsonPath("$.toppings[?(@.topping_id==2)].free",contains(false)));
+        // 經典奶茶中杯 40 ＋ 茶凍 10（不是 free）＋ 珍珠 2 份（第一份免費）10
+        var order=create(request(item(3,1,List.of(2L,1L,1L))));
+        assertEquals(60,order.get("total").asInt());
+        assertEquals(60,order.get("items").get(0).get("unit_price").asInt());
+        long itemId=order.get("items").get(0).get("item_id").asLong();
+        assertEquals(1,jdbc.queryForObject("SELECT free_qty FROM order_item_topping WHERE item_id=? AND topping_id=1",Integer.class,itemId));
+        assertEquals(0,jdbc.queryForObject("SELECT free_qty FROM order_item_topping WHERE item_id=? AND topping_id=2",Integer.class,itemId));
+        // 茶類不適用
+        assertEquals(35,create(request(item(1,1,List.of(1L)))).get("total").asInt());
     }
     @Test void toppingLimitsComeFromDatabaseAndFivePerCup() throws Exception {
         // 040：每種加料的上限記在 topping.max_qty；一杯全部加起來最多 5 份

@@ -45,6 +45,8 @@ public final class OrderRequests {
     public enum ItemStatus { PENDING, MAKING, DONE, PICKED_UP, CANCELLED, WASTED }
     /** 一杯飲料的加料最多幾份（全部加料的份數加起來，040）。每種加料自己的上限在 topping.max_qty。 */
     public static final int MAX_TOPPINGS_PER_CUP = 5;
+    /** 這些分類的飲品，第一份 free 加料（topping.free，046）不用錢；前端 models/pos.ts 的 FREE_TOPPING_CATEGORIES 也一樣。 */
+    public static final java.util.Set<String> FREE_TOPPING_CATEGORIES = java.util.Set.of("奶茶", "鮮奶");
 
     // Item 代表「一種完整客製規格 × qty 杯」，toppingIds 只放額外加料的 ID。
     // 同一種加料可以加好幾份（039）：ID 在清單裡出現兩次，例如 [1,1,3]＝珍珠兩份、椰果一份。

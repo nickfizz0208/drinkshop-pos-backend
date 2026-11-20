@@ -141,6 +141,90 @@ class SaleStatusApiTest {
             .andExpect(jsonPath("$.toppings[*].topping_id",contains(1)));
     }
 
+    /** 043：雙Q果（半成品）＝茶凍（半成品，紅茶包做的）＋珍珠（原料）；加料「雙Q果」用這個半成品。 */
+    private void addNestedPrep() {
+        jdbc.update("INSERT INTO prep_item (prep_id,name,steps,category) VALUES (2,'雙Q果','茶凍、珍珠各半混合','底料')");
+        jdbc.update("INSERT INTO prep_item_ingredient (prep_id,sub_prep_id,qty) VALUES (2,1,0.5)");
+        jdbc.update("INSERT INTO prep_item_ingredient (prep_id,inventory_id,qty) VALUES (2,6,0.5)");
+        jdbc.update("INSERT INTO topping (topping_id,name,price,prep_id) VALUES (3,'雙Q果',10,2)");
+    }
+
+    @Test
+    void linkedSubPrepStopsUpperPrepAllTheWayUp() throws Exception {
+        addNestedPrep();
+        mvc.perform(get("/api/sale-status").with(login("s_pos",PASSWORD)))
+            .andExpect(jsonPath("$.preps[?(@.prepId==2)].subPrepIds[*]",contains(1)))
+            .andExpect(jsonPath("$.preps[?(@.prepId==2)].inventoryIds[*]",contains(6)))
+            .andExpect(jsonPath("$.preps[?(@.prepId==2)].ingredients[*].link",contains(true,true)))
+            // 紅茶包透過茶凍、雙Q果兩層連到加料雙Q果
+            .andExpect(jsonPath("$.inventories[?(@.inventoryId==3)].usedByToppings[*]",contains(2,3)))
+            .andExpect(jsonPath("$.preps[?(@.prepId==1)].usedByToppings[*]",contains(2,3)));
+
+        // 下層半成品自己停售：雙Q果跟著不能賣
+        put("s_pos","{\"preps\":[{\"id\":1,\"onSale\":false}]}")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.preps[?(@.prepId==2)].onSale",contains(true)))
+            .andExpect(jsonPath("$.preps[?(@.prepId==2)].available",contains(false)))
+            .andExpect(jsonPath("$.toppings[?(@.toppingId==3)].stoppedBy[*]",contains("茶凍")));
+        put("s_pos","{\"preps\":[{\"id\":1,\"onSale\":true}]}").andExpect(status().isOk());
+
+        // 下層半成品的原料停售：一路連到雙Q果，送單也會擋
+        put("s_pos","{\"inventories\":[{\"id\":3,\"onSale\":false}]}")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.toppings[?(@.toppingId==3)].stoppedBy[*]",contains("紅茶包")));
+        mvc.perform(get("/api/menu").with(login("s_pos",PASSWORD)))
+            .andExpect(jsonPath("$.toppings[*].topping_id",contains(1)));
+        var item=new Item(2L,Size.M,TempIce.LESS,Sugar.S5,1,List.of(3L),null);
+        var request=new Create(UUID.randomUUID(),Source.TAKE_OUT,Payment.LINE_PAY,null,null,null,null,null,null,List.of(item));
+        mvc.perform(post("/api/orders").with(login("s_pos",PASSWORD)).contentType("application/json")
+            .content(json.writeValueAsBytes(request)))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.message",containsString("紅茶包 停售")));
+    }
+
+    @Test
+    void unlinkedIngredientDoesNotStopPrep() throws Exception {
+        addNestedPrep();
+        // 044：雙Q果裡的茶凍不連動（例如綠茶凍裡的綠茶）
+        jdbc.update("UPDATE prep_item_ingredient SET link=FALSE WHERE prep_id=2 AND sub_prep_id=1");
+        mvc.perform(get("/api/sale-status").with(login("s_pos",PASSWORD)))
+            .andExpect(jsonPath("$.preps[?(@.prepId==2)].ingredients[?(@.subPrepId==1)].link",contains(false)))
+            .andExpect(jsonPath("$.inventories[?(@.inventoryId==3)].usedByToppings[*]",contains(2)))
+            .andExpect(jsonPath("$.preps[?(@.prepId==1)].usedByToppings[*]",contains(2)));
+
+        put("s_pos","{\"preps\":[{\"id\":1,\"onSale\":false}],\"inventories\":[{\"id\":3,\"onSale\":false}]}")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.preps[?(@.prepId==2)].available",contains(true)))
+            .andExpect(jsonPath("$.toppings[?(@.toppingId==3)].sellable",contains(true)))
+            .andExpect(jsonPath("$.toppings[?(@.toppingId==2)].sellable",contains(false)));
+        mvc.perform(get("/api/menu").with(login("s_pos",PASSWORD)))
+            .andExpect(jsonPath("$.toppings[*].topping_id",contains(1,3)));
+
+        // 原料材料也可以不連動
+        jdbc.update("UPDATE prep_item_ingredient SET link=FALSE WHERE prep_id=2 AND inventory_id=6");
+        put("s_pos","{\"inventories\":[{\"id\":6,\"onSale\":false}]}")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.toppings[?(@.toppingId==3)].sellable",contains(true)))
+            .andExpect(jsonPath("$.toppings[?(@.toppingId==1)].sellable",contains(false)));
+    }
+
+    @Test
+    void hiddenItemsAreMarkedButStillLinked() throws Exception {
+        // 045：show_in_sale＝FALSE 只是停售管理頁不顯示，連動照算
+        jdbc.update("UPDATE inventory SET show_in_sale=FALSE WHERE inventory_id IN (1,6)");
+        jdbc.update("UPDATE product SET show_in_sale=FALSE WHERE product_id=2");
+        mvc.perform(get("/api/sale-status").with(login("s_pos",PASSWORD)))
+            .andExpect(jsonPath("$.inventories[?(@.inventoryId==1)].show",contains(false)))
+            .andExpect(jsonPath("$.inventories[?(@.inventoryId==3)].show",contains(true)))
+            .andExpect(jsonPath("$.products[?(@.productId==2)].show",contains(false)))
+            .andExpect(jsonPath("$.preps[0].show").value(true))
+            .andExpect(jsonPath("$.toppings[?(@.toppingId==1)].show",contains(true)));
+        put("s_pos","{\"inventories\":[{\"id\":6,\"onSale\":false}]}")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.products[?(@.productId==4)].sellable",contains(false)))
+            .andExpect(jsonPath("$.products[?(@.productId==4)].stoppedBy[*]",contains("珍珠")));
+    }
+
     @Test
     void orderWithStoppedMaterialIsRejected() throws Exception {
         put("s_pos","{\"inventories\":[{\"id\":6,\"onSale\":false}]}").andExpect(status().isOk());

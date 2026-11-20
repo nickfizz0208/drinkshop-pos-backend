@@ -19,7 +19,8 @@
 | 欄位 | 內容 |
 | --- | --- |
 | `inventories[]` | `inventoryId`、`name`、`category`（分類，null＝未分類）、`onSale`、`usedByProducts`、`usedByToppings`（直接或透過半成品用到它的編號） |
-| `preps[]` | `prepId`、`name`、`category`、`onSale`（自己）、`available`（含原料）、`inventoryIds`、`usedByProducts`、`usedByToppings` |
+| 每一項 | `show`（045 的 `show_in_sale`）：false＝停售管理頁不顯示；連動照算，所以還是會回傳 |
+| `preps[]` | `prepId`、`name`、`category`、`onSale`（自己）、`available`（含直接用的原料）、`inventoryIds`、`subPrepIds`（用到的半成品，043）、`ingredients`（每項材料的 `inventoryId`／`subPrepId`／`link`，044：`link` 決定停售連不連動）、`usedByProducts`、`usedByToppings` |
 | `products[]` | `productId`、`name`、`category`、`onSale`（自己）、`sellable`（實際能不能賣）、`inventoryIds`、`prepIds`、`stoppedBy`（造成停售的材料名稱） |
 | `toppings[]` | `toppingId`、`name`、`onSale`、`sellable`、`inventoryId`、`prepId`、`stoppedBy` |
 
