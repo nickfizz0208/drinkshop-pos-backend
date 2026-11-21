@@ -28,6 +28,7 @@ public class DemoDataConfig {
             new TransactionTemplate(transactions).executeWithoutResult(tx -> {
                 add(repo,encoder,"staff","POS 測試店員","STAFF",password);
                 add(repo,encoder,"manager","POS 測試店長","MANAGER",password);
+                add(repo,encoder,"hq","POS 測試總部","HQ",password);
                 // 門市 POS 機的共用帳號（需先執行 database/014_pos_level.sql）
                 add(repo,encoder,"pos","門市 POS","POS",password);
                 // 不再自動開班：用 pos 帳號登入後，在畫面上選擇開班人員開班
