@@ -78,7 +78,8 @@ public class SecurityConfig {
                     "/api/shift-staff/clock-in", "/api/shift-staff/clock-out", "/api/shift-staff/on-duty").hasRole("POS")
                 // 今日打卡狀態：所有登入帳號都能看（POS 機打卡要知道開班沒、誰在班；一般員工只看得到在班的人和自己）
                 .requestMatchers(HttpMethod.GET, "/api/shift-staff/today").authenticated()
-                // 盤點類型的新增、修改：只限店長、總部（查看在下面，個人帳號都可以）
+                // 盤點審核、盤點類型的新增修改：只限店長、總部
+                .requestMatchers(HttpMethod.POST, "/api/inventory-counts/*/approve").hasAnyRole("MANAGER", "HQ")
                 .requestMatchers(HttpMethod.POST, "/api/inventory-counts/types").hasAnyRole("MANAGER", "HQ")
                 .requestMatchers(HttpMethod.PUT, "/api/inventory-counts/types/*").hasAnyRole("MANAGER", "HQ")
                 // 原料報廢回報：原料報廢登記、每日與每月損耗紀錄只限店員、店長的個人帳號（報廢記在員工本人名下；POS 共用帳號不行）

@@ -43,7 +43,7 @@ public final class InventoryCountDtos {
      */
     public record Item(long inventoryId, String name, String baseUnit, String packUnit, BigDecimal perPack,
                        BigDecimal bookQty, BigDecimal safetyStock, BigDecimal unitCost,
-                       boolean displayByPack) {}
+                       boolean displayByPack, String category) {}
 
     /** 盤點的輸入方式：箱數＋零散，或只填箱數（有包裝單位的原料記成 箱數 × 每箱數量）。 */
     public enum InputMode { PACK_AND_LOOSE, PACK_ONLY }

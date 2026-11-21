@@ -74,6 +74,13 @@ public class InventoryCountService {
                 throw ApiException.bad("「" + type.name() + "」只填箱數：「" + name + "」要是 " + perPack.stripTrailingZeros().toPlainString() + " 的倍數");
         }
         String note = request.note() == null || request.note().isBlank() ? null : request.note().trim();
+        var staffRows = repo.rows("SELECT * FROM staff_account WHERE staff_id=?", staffId);
+        boolean isManager = !staffRows.isEmpty() && ("MANAGER".equals(staffRows.getFirst().get("level")) || "HQ".equals(staffRows.getFirst().get("level")));
+        if (!isManager) {
+            note = (note == null ? "" : note + " ") + "[待店長審核]";
+        } else {
+            note = (note == null ? "" : note + " ") + "[店長已確認]";
+        }
         LocalDateTime now = LocalDateTime.now(clock);
         // 表頭：一次盤點一列（盤點人、時間、備註只存一次）
         long countId;
@@ -96,9 +103,12 @@ public class InventoryCountService {
                 INSERT INTO inventory_count_line(count_id,inventory_id,counted_qty,book_qty,diff_qty,unit_cost)
                 VALUES (?,?,?,?,?,?)
                 """, countId, line.inventoryId(), counted, book, counted.subtract(book), inventory.getUnitCost());
-            // 盤點後帳面＝實點；明細已留下盤點前的帳面與差異。最新一次盤點也寫回原料主檔的 reported_* 欄位
-            inventory.setBookQty(counted);
+            // 盤點後：最新一次盤點寫回原料主檔的 reported_* 欄位
             inventory.setReportedQty(counted); inventory.setReportedBy(staffId); inventory.setReportedAt(now);
+            // 只有店長送出才直接更新帳面；員工送出時保留原帳面，待店長審核確認後才更新
+            if (isManager) {
+                inventory.setBookQty(counted);
+            }
             inventories.save(inventory);
         }
         return rowsOf("WHERE c.request_id=?", requestId);
@@ -178,7 +188,7 @@ public class InventoryCountService {
             all ? List.of() : itemIds, timestamp(r.get("updated_at")), (String) r.get("staff_name"));
     }
 
-    /** 盤點頁的原料清單（含是否允許小數）。 */
+    /** 盤點頁的原料清單（含物料分類與是否允許小數）。 */
     @Transactional(readOnly = true)
     public List<Item> items() {
         var out = new ArrayList<Item>();
@@ -186,8 +196,36 @@ public class InventoryCountService {
             out.add(new Item(PosRepository.number(r, "inventory_id"), r.get("name").toString(), r.get("base_unit").toString(),
                 (String) r.get("pack_unit"), decimal(r, "per_pack"), decimal(r, "book_qty"), decimal(r, "safety_stock"),
                 decimal(r, "unit_cost"),
-                r.containsKey("display_by_pack") && PosRepository.flag(r, "display_by_pack")));
+                r.containsKey("display_by_pack") && PosRepository.flag(r, "display_by_pack"),
+                (String) r.get("category")));
         return out;
+    }
+
+    /** 店長審核確認盤點紀錄：將實點數量更新為帳面數量 (book_qty)。 */
+    public Map<String, Object> approveCount(long countId, long staffId) {
+        var staffRows = repo.rows("SELECT * FROM staff_account WHERE staff_id=?", staffId);
+        boolean isManager = !staffRows.isEmpty() && ("MANAGER".equals(staffRows.getFirst().get("level")) || "HQ".equals(staffRows.getFirst().get("level")));
+        if (!isManager) {
+            throw ApiException.forbidden("只限店長或總部審核盤點紀錄");
+        }
+        var countRows = repo.rows("SELECT * FROM inventory_count WHERE count_id=?", countId);
+        if (countRows.isEmpty()) {
+            throw ApiException.missing("查無此盤點紀錄");
+        }
+        var lines = repo.rows("SELECT inventory_id, counted_qty FROM inventory_count_line WHERE count_id=?", countId);
+        for (var line : lines) {
+            long invId = PosRepository.number(line, "inventory_id");
+            BigDecimal counted = decimal(line, "counted_qty");
+            inventories.findLocked(invId).ifPresent(inv -> {
+                inv.setBookQty(counted);
+                inventories.save(inv);
+            });
+        }
+        String currentNote = (String) countRows.getFirst().get("note");
+        String updatedNote = (currentNote == null ? "" : currentNote.replace("[待店長審核]", "").trim() + " ") + "[店長已審核確認]";
+        repo.update("UPDATE inventory_count SET note=? WHERE count_id=?", updatedNote.trim(), countId);
+
+        return Map.of("success", true, "message", "店長已審核確認，帳面庫存已依盤點實點數量完成更新");
     }
 
     @Transactional(readOnly = true)

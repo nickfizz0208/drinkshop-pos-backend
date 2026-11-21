@@ -35,6 +35,12 @@ public class InventoryCountController {
         return counts.submit(request, currentStaffId(principal));
     }
 
+    /** POST /api/inventory-counts/{countId}/approve：店長審核確認盤點紀錄，並正式更新原料帳面庫存。 */
+    @PostMapping("/{countId}/approve")
+    public java.util.Map<String, Object> approve(@PathVariable("countId") long countId, Principal principal) {
+        return counts.approveCount(countId, currentStaffId(principal));
+    }
+
     /** GET /api/inventory-counts/types?includeInactive=true：盤點類型（不填只列啟用中的）。 */
     @GetMapping("/types")
     List<CountType> types(@RequestParam(name = "includeInactive", defaultValue = "false") boolean includeInactive) {
