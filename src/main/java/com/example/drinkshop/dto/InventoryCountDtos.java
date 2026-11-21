@@ -65,4 +65,56 @@ public final class InventoryCountDtos {
 
     /** 盤點紀錄查詢。enabled = false 表示 016 尚未升級、盤點功能還沒開放。 */
     public record History(boolean enabled, List<Row> rows) {}
+
+    /** 半成品所屬的原料配方資訊。 */
+    public record PrepIngredientDto(
+        long inventoryId,
+        String name,
+        BigDecimal qty,
+        String unit
+    ) {}
+
+    /**
+     * 半成品盤點項目：
+     * 理論的量 = 目前數量（今日備量）- 今日訂單消耗 - 今日報廢
+     */
+    public record PrepCountItem(
+        long prepId,
+        String name,
+        String category,
+        String unit,
+        BigDecimal currentQty,      // 目前物料數量 / 今日備量
+        BigDecimal orderConsumed,   // 今日訂單消耗
+        BigDecimal wastedQty,       // 今日報廢
+        BigDecimal theoreticalQty,  // 理論的量 = 目前數量 - 訂單消耗 - 報廢
+        List<PrepIngredientDto> ingredients
+    ) {}
+
+    /** 提交半成品盤點的一項實點資料。 */
+    public record PrepCountLineSubmit(
+        @NotNull @Positive Long prepId,
+        @NotNull @DecimalMin("0") BigDecimal currentQty,
+        @NotNull @DecimalMin("0") BigDecimal countedQty
+    ) {}
+
+    /** 送出半成品盤點。 */
+    public record PrepCountSubmit(
+        @NotNull UUID requestId,
+        @NotEmpty List<@Valid @NotNull PrepCountLineSubmit> lines,
+        @Size(max = 255) String note
+    ) {}
+
+    /** 半成品盤點核對結果：差距 = 理論的量 - 實際員工盤點的量。 */
+    public record PrepCountResult(
+        long prepId,
+        String name,
+        String category,
+        String unit,
+        BigDecimal currentQty,
+        BigDecimal orderConsumed,
+        BigDecimal wastedQty,
+        BigDecimal theoreticalQty,
+        BigDecimal countedQty,
+        BigDecimal diffQty
+    ) {}
 }

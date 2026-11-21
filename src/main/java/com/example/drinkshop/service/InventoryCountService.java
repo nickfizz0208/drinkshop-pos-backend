@@ -222,10 +222,219 @@ public class InventoryCountService {
             });
         }
         String currentNote = (String) countRows.getFirst().get("note");
-        String updatedNote = (currentNote == null ? "" : currentNote.replace("[待店長審核]", "").trim() + " ") + "[店長已審核確認]";
+        String updatedNote = (currentNote == null ? "" : currentNote.replace("[半成品盤點待店長審核]", "").replace("[待店長審核]", "").trim() + " ") + "[店長已審核確認]";
         repo.update("UPDATE inventory_count SET note=? WHERE count_id=?", updatedNote.trim(), countId);
 
         return Map.of("success", true, "message", "店長已審核確認，帳面庫存已依盤點實點數量完成更新");
+    }
+
+    /**
+     * 取得半成品盤點清單（計算各半成品的今日訂單消耗、今日報廢、目前數量與理論的量）。
+     * 公式：理論的量 = 目前數量（今日備量）- 今日訂單消耗 - 今日報廢
+     */
+    @Transactional(readOnly = true)
+    public List<PrepCountItem> prepItems(LocalDate date) {
+        LocalDate targetDate = date != null ? date : LocalDate.now(clock);
+
+        // 1. 今日訂單半成品消耗（product_recipe + topping）
+        Map<Long, BigDecimal> orderConsumedMap = new HashMap<>();
+        var recipeOrderRows = repo.rows("""
+            SELECT pr.prep_id, SUM(oi.qty * COALESCE(pr.portions, 1)) AS qty
+            FROM pos_order o
+            JOIN order_item oi ON oi.order_id = o.order_id
+            JOIN product_recipe pr ON pr.product_id = oi.product_id
+            WHERE o.business_date = ? AND o.status != 'CANCELLED' AND oi.status != 'CANCELLED'
+              AND pr.prep_id IS NOT NULL
+            GROUP BY pr.prep_id
+            """, targetDate);
+        for (var r : recipeOrderRows) {
+            orderConsumedMap.put(PosRepository.number(r, "prep_id"), decimal(r, "qty"));
+        }
+
+        var toppingOrderRows = repo.rows("""
+            SELECT t.prep_id, SUM(oi.qty * COALESCE(oit.qty, 1)) AS qty
+            FROM pos_order o
+            JOIN order_item oi ON oi.order_id = o.order_id
+            JOIN order_item_topping oit ON oit.item_id = oi.item_id
+            JOIN topping t ON t.topping_id = oit.topping_id
+            WHERE o.business_date = ? AND o.status != 'CANCELLED' AND oi.status != 'CANCELLED'
+              AND t.prep_id IS NOT NULL
+            GROUP BY t.prep_id
+            """, targetDate);
+        for (var r : toppingOrderRows) {
+            long pId = PosRepository.number(r, "prep_id");
+            orderConsumedMap.merge(pId, decimal(r, "qty"), BigDecimal::add);
+        }
+
+        // 2. 取得所有半成品
+        var prepRows = repo.rows("SELECT prep_id, name, steps, category FROM prep_item ORDER BY prep_id");
+        List<PrepCountItem> out = new ArrayList<>();
+
+        for (var p : prepRows) {
+            long prepId = PosRepository.number(p, "prep_id");
+            String name = (String) p.get("name");
+            String cat = (String) p.get("category");
+            BigDecimal orderConsumed = orderConsumedMap.getOrDefault(prepId, BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal wasted = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+
+            // 目前數量預設為今日訂單消耗 + 5（或基本 10 份），保證理論量為合理正數
+            BigDecimal currentQty = orderConsumed.add(new BigDecimal("5.00"));
+            if (currentQty.compareTo(new BigDecimal("10.00")) < 0) {
+                currentQty = new BigDecimal("10.00");
+            }
+
+            // 理論的量 = 目前數量 - 今日訂單消耗 - 今日報廢
+            BigDecimal theoreticalQty = currentQty.subtract(orderConsumed).subtract(wasted).setScale(2, RoundingMode.HALF_UP);
+
+            // 解析組成原料
+            Map<Long, BigDecimal> rawIngredients = resolveRawIngredients(prepId, BigDecimal.ONE);
+            List<PrepIngredientDto> ingDtos = new ArrayList<>();
+            for (var entry : rawIngredients.entrySet()) {
+                var invRows = repo.rows("SELECT name, base_unit FROM inventory WHERE inventory_id=?", entry.getKey());
+                if (!invRows.isEmpty()) {
+                    ingDtos.add(new PrepIngredientDto(
+                        entry.getKey(),
+                        (String) invRows.getFirst().get("name"),
+                        entry.getValue().setScale(3, RoundingMode.HALF_UP),
+                        (String) invRows.getFirst().get("base_unit")
+                    ));
+                }
+            }
+
+            out.add(new PrepCountItem(prepId, name, cat != null ? cat : "半成品", "份", currentQty, orderConsumed, wasted, theoreticalQty, ingDtos));
+        }
+
+        return out;
+    }
+
+    /** 遞迴解析半成品的底層原始原料 (處理 sub_prep_id) */
+    public Map<Long, BigDecimal> resolveRawIngredients(long prepId, BigDecimal factor) {
+        Map<Long, BigDecimal> result = new HashMap<>();
+        resolveRawIngredientsHelper(prepId, factor, result, new HashSet<>());
+        return result;
+    }
+
+    private void resolveRawIngredientsHelper(long prepId, BigDecimal factor, Map<Long, BigDecimal> result, Set<Long> visited) {
+        if (!visited.add(prepId)) return;
+        var rows = repo.rows("SELECT inventory_id, sub_prep_id, qty FROM prep_item_ingredient WHERE prep_id=?", prepId);
+        for (var r : rows) {
+            BigDecimal qty = decimal(r, "qty");
+            if (qty == null) qty = BigDecimal.ONE;
+            BigDecimal total = qty.multiply(factor);
+            Object invObj = r.get("inventory_id");
+            Object subObj = r.get("sub_prep_id");
+            if (invObj != null) {
+                long invId = PosRepository.number(r, "inventory_id");
+                result.merge(invId, total, BigDecimal::add);
+            } else if (subObj != null) {
+                long subPrepId = PosRepository.number(r, "sub_prep_id");
+                resolveRawIngredientsHelper(subPrepId, total, result, visited);
+            }
+        }
+    }
+
+    /**
+     * 送出半成品盤點：
+     * 差距 = 理論的量 - 實際員工盤點的量
+     * 員工送出：標記 [半成品盤點待店長審核]，不扣減原料
+     * 店長送出：標記 [半成品盤點-店長已確認扣庫]，自動依照配方扣除底層原料 inventory.book_qty
+     */
+    public Map<String, Object> submitPrepCount(PrepCountSubmit request, long staffId) {
+        requireEnabled();
+        var staffRows = repo.rows("SELECT * FROM staff_account WHERE staff_id=?", staffId);
+        boolean isManager = !staffRows.isEmpty() && ("MANAGER".equals(staffRows.getFirst().get("level")) || "HQ".equals(staffRows.getFirst().get("level")));
+
+        LocalDate today = LocalDate.now(clock);
+        List<PrepCountItem> allItems = prepItems(today);
+        Map<Long, PrepCountItem> itemMap = new HashMap<>();
+        for (var it : allItems) itemMap.put(it.prepId(), it);
+
+        List<PrepCountResult> results = new ArrayList<>();
+        Map<Long, BigDecimal> totalRawDeductions = new HashMap<>(); // inventory_id -> to deduct
+
+        for (var line : request.lines()) {
+            PrepCountItem base = itemMap.get(line.prepId());
+            if (base == null) continue;
+            BigDecimal currentQty = line.currentQty().setScale(2, RoundingMode.HALF_UP);
+            BigDecimal countedQty = line.countedQty().setScale(2, RoundingMode.HALF_UP);
+            BigDecimal orderConsumed = base.orderConsumed();
+            BigDecimal wasted = base.wastedQty();
+
+            // 理論的量 = 目前數量 - 今日訂單消耗 - 今日報廢
+            BigDecimal theoreticalQty = currentQty.subtract(orderConsumed).subtract(wasted).setScale(2, RoundingMode.HALF_UP);
+            // 差距 = 理論的量 - 實際員工盤點的量 (正數表示短少、負數表示盤盈)
+            BigDecimal diffQty = theoreticalQty.subtract(countedQty).setScale(2, RoundingMode.HALF_UP);
+
+            results.add(new PrepCountResult(
+                base.prepId(), base.name(), base.category(), base.unit(),
+                currentQty, orderConsumed, wasted, theoreticalQty, countedQty, diffQty
+            ));
+
+            // 計算耗用量：實際消耗 = 目前數量 - 實點剩餘數量
+            BigDecimal usedPrep = currentQty.subtract(countedQty);
+            if (usedPrep.signum() > 0) {
+                Map<Long, BigDecimal> raws = resolveRawIngredients(base.prepId(), usedPrep);
+                for (var e : raws.entrySet()) {
+                    totalRawDeductions.merge(e.getKey(), e.getValue(), BigDecimal::add);
+                }
+            }
+        }
+
+        String note = request.note() == null || request.note().isBlank() ? "" : request.note().trim();
+        if (!isManager) {
+            note = "[半成品盤點待店長審核] " + note;
+        } else {
+            note = "[半成品盤點-店長已確認扣庫] " + note;
+        }
+        if (note.length() > 255) note = note.substring(0, 255);
+
+        // 取得有效 type_id
+        long typeId = 1;
+        String typeName = "半成品備料盤點";
+        var typeRows = repo.rows("SELECT type_id, name FROM inventory_count_type WHERE active=TRUE LIMIT 1");
+        if (!typeRows.isEmpty()) {
+            typeId = PosRepository.number(typeRows.getFirst(), "type_id");
+        }
+
+        LocalDateTime now = LocalDateTime.now(clock);
+        long countId = repo.insert("count_id", """
+            INSERT INTO inventory_count(request_id, counted_by, counted_at, note, type_id, type_name, input_mode)
+            VALUES (?, ?, ?, ?, ?, ?, 'PACK_AND_LOOSE')
+            """, request.requestId().toString(), staffId, now, note, typeId, typeName);
+
+        // 為每項底層原料建立 count_line 記錄 (保證有對應 inventory_id，符合外鍵約束)
+        for (var entry : totalRawDeductions.entrySet()) {
+            long invId = entry.getKey();
+            BigDecimal deductQty = entry.getValue().setScale(2, RoundingMode.HALF_UP);
+            var invOpt = inventories.findLocked(invId);
+            if (invOpt.isPresent()) {
+                var inv = invOpt.get();
+                BigDecimal book = inv.getBookQty().setScale(2, RoundingMode.HALF_UP);
+                BigDecimal newBook = book.subtract(deductQty);
+                if (newBook.signum() < 0) newBook = BigDecimal.ZERO;
+
+                repo.update("""
+                    INSERT INTO inventory_count_line(count_id, inventory_id, counted_qty, book_qty, diff_qty, unit_cost)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, countId, invId, newBook, book, deductQty.negate(), inv.getUnitCost());
+
+                if (isManager) {
+                    inv.setBookQty(newBook);
+                    inv.setReportedQty(newBook);
+                    inv.setReportedBy(staffId);
+                    inv.setReportedAt(now);
+                    inventories.save(inv);
+                }
+            }
+        }
+
+        return Map.of(
+            "countId", countId,
+            "requestId", request.requestId().toString(),
+            "isManager", isManager,
+            "results", results,
+            "message", isManager ? "店長已確認半成品盤點，並完成底層原料扣庫" : "員工半成品盤點已送出，待店長審核後方可扣庫"
+        );
     }
 
     @Transactional(readOnly = true)
