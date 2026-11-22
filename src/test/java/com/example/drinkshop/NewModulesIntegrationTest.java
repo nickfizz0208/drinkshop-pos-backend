@@ -19,7 +19,9 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 import static com.example.drinkshop.TestLogin.login;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -59,11 +61,14 @@ public class NewModulesIntegrationTest {
     @Autowired
     private ObjectMapper mapper;
 
+    @Autowired
+    private Clock clock;
+
     @org.springframework.boot.test.context.TestConfiguration
     static class TestClock {
         @org.springframework.context.annotation.Bean @org.springframework.context.annotation.Primary
-        java.time.Clock fixedClock() {
-            return java.time.Clock.fixed(java.time.Instant.parse("2026-10-28T03:00:00Z"),java.time.ZoneId.of("Asia/Taipei"));
+        Clock fixedClock() {
+            return Clock.fixed(java.time.Instant.parse("2026-10-28T03:00:00Z"),java.time.ZoneId.of("Asia/Taipei"));
         }
     }
 
@@ -181,7 +186,7 @@ public class NewModulesIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("關班人員目前不在班，請選擇在班人員或先打卡上班"));
         // 員工 11 打卡在班後即可關班
-        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES (?, 11, CURRENT_TIMESTAMP)", testDate);
+        insertClockIn(testDate, LocalDateTime.now(clock).minusHours(1));
         mockMvc.perform(post("/api/daily-shifts/close")
                         .with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -223,7 +228,7 @@ public class NewModulesIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(reopen))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("今天還在營業中，不用重新開班"));
-        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES (?, 11, CURRENT_TIMESTAMP)", testDate);
+        insertClockIn(testDate, LocalDateTime.now(clock).minusHours(1));
         mockMvc.perform(post("/api/daily-shifts/close").with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new CloseShiftRequest(testDate, new BigDecimal("1500"), null, 11L))))
@@ -237,7 +242,7 @@ public class NewModulesIntegrationTest {
                 .andExpect(jsonPath("$.openedBy").value(11))
                 .andExpect(jsonPath("$.pettyCash").value(1500.0));
         // 重新開班並再次打卡上班後，可以再關一次
-        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES (?, 11, CURRENT_TIMESTAMP)", testDate);
+        insertClockIn(testDate, LocalDateTime.now(clock));
         mockMvc.perform(post("/api/daily-shifts/close").with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new CloseShiftRequest(testDate, new BigDecimal("1500"), null, 11L))))
@@ -253,7 +258,7 @@ public class NewModulesIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new OpenShiftRequest(testDate, new BigDecimal("2000"), "[]", 11L))))
                 .andExpect(status().isCreated());
-        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES (?, 11, CURRENT_TIMESTAMP)", testDate);
+        insertClockIn(testDate, LocalDateTime.now(clock).minusHours(1));
         // 短少 10 元沒寫原因：400，班次維持 OPEN
         mockMvc.perform(post("/api/daily-shifts/close")
                         .with(login(TEST_USER, TEST_PASS))
@@ -270,6 +275,11 @@ public class NewModulesIntegrationTest {
                         .content(mapper.writeValueAsString(new CloseShiftRequest(testDate, new BigDecimal("1990"), "找錯零錢", 11L))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.diffAmount").value(-10.0));
+    }
+
+    private void insertClockIn(LocalDate businessDate, LocalDateTime clockInAt) {
+        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES (?, 11, ?)",
+                businessDate, clockInAt);
     }
 
     @Test
