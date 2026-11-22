@@ -23,6 +23,12 @@ public class ShiftStaff {
 
     @Column(name = "clock_out_at")
     private LocalDateTime clockOutAt;
+    @Column(name = "clock_out_source")
+    private String clockOutSource;
+
+    public String getClockOutSource() { return clockOutSource; }
+    public void setClockOutSource(String clockOutSource) { this.clockOutSource = clockOutSource; }
+    public boolean isOnDuty() { return clockOutAt == null && clockOutSource == null; }
 
     // 最後修改這筆紀錄的店長（一般打卡不會填）
     @Column(name = "updated_by")

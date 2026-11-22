@@ -106,11 +106,18 @@ class ScheduleApiTest {
         asManager(post("/api/schedule/entries"), "{\"workDate\":\"2026-11-11\",\"staffId\":10,\"startTime\":\"18:00\",\"endTime\":\"21:00\"}")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.entry.templateId").doesNotExist());
-        // 沒班別也沒時間、時間顛倒
+        // 沒班別也沒時間、起訖相同
         asManager(post("/api/schedule/entries"), "{\"workDate\":\"2026-11-11\",\"staffId\":10}")
                 .andExpect(status().isBadRequest());
-        asManager(post("/api/schedule/entries"), "{\"workDate\":\"2026-11-11\",\"staffId\":10,\"startTime\":\"18:00\",\"endTime\":\"17:00\"}")
+        asManager(post("/api/schedule/entries"), "{\"workDate\":\"2026-11-11\",\"staffId\":10,\"startTime\":\"18:00\",\"endTime\":\"18:00\"}")
                 .andExpect(status().isBadRequest());
+
+        asManager(post("/api/schedule/entries"), "{\"workDate\":\"2026-11-12\",\"staffId\":10,\"startTime\":\"22:00\",\"endTime\":\"02:00\"}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.entry.endTime").value("02:00:00"));
+        asManager(post("/api/schedule/entries"), "{\"workDate\":\"2026-11-13\",\"staffId\":10,\"startTime\":\"01:00\",\"endTime\":\"03:00\"}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.warnings", hasSize(1)));
 
         // 修改班別時間不影響已排的班
         asManager(put("/api/schedule/templates/" + early), "{\"name\":\"早班\",\"startTime\":\"08:00\",\"endTime\":\"14:00\",\"active\":true}")

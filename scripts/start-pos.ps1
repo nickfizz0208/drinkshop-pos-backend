@@ -14,7 +14,8 @@ Push-Location $projectRoot
 try {
     $artifact = Join-Path $projectRoot 'build\libs\drinkshop-pos-backend-0.0.1-SNAPSHOT.jar'
     if ($Build -or -not (Test-Path -LiteralPath $artifact)) {
-        & .\gradlew.bat --gradle-user-home "$env:USERPROFILE\.gradle" bootJar
+        $gradleHome = if ($env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME } else { Join-Path $env:USERPROFILE '.gradle' }
+        & .\gradlew.bat --gradle-user-home $gradleHome bootJar
         if ($LASTEXITCODE -ne 0) { throw 'POS build failed.' }
     }
     # Run an immutable copy. A later bootJar build cannot corrupt an active JVM's JAR.

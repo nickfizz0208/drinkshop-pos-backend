@@ -28,7 +28,8 @@ public class RuleService {
         catch (Exception ex) { throw new IllegalStateException("Cannot encode JSON",ex); }
     }
     public void validate(Item item,Map<String,Object> product) {
-        if (!PosRepository.flag(product,"on_sale")) throw ApiException.conflict("飲料已下架");
+        if (!PosRepository.flag(product,"on_sale")) throw ApiException.conflict("飲品已停售");
+        if (PosRepository.flag(product,"sold_out")) throw ApiException.conflict("飲品已售完");
         // 溫度冰量合成一個欄位（038），溫熱飲本來就不會有冰量，只要檢查這杯能不能做溫熱飲
         if (item.tempIce().hotOrWarm() && !PosRepository.flag(product,"hot_allowed")) throw ApiException.bad("此飲料不提供溫熱飲");
         // 一杯的加料最多 5 份（040，全部加料的份數加起來）；每種加料自己的上限 topping.max_qty 在 OrderService 檢查

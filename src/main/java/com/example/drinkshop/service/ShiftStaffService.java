@@ -38,6 +38,8 @@ public class ShiftStaffService {
     private final OrderService orders;
     private final PosRepository pos;
     private final Clock clock;
+    @jakarta.persistence.PersistenceContext
+    private jakarta.persistence.EntityManager entityManager;
 
     public ShiftStaffService(ShiftStaffRepository shiftStaff, DailyShiftRepository shifts,
             StaffScheduleRepository schedules, OrderService orders, PosRepository pos, Clock clock) {
@@ -58,19 +60,26 @@ public class ShiftStaffService {
     public Response clockIn(long staffId) {
         requireActiveStaff(staffId);
         var date = today();
-        var shift = shifts.findById(date).orElseThrow(() -> ApiException.conflict("今天還沒開班，不能打卡上班"));
-        if (!"OPEN".equalsIgnoreCase(shift.getStatus()))
+        var shift = pos.rows("SELECT status FROM daily_shift WHERE business_date=? FOR UPDATE", date);
+        if (shift.isEmpty()) throw ApiException.conflict("今天還沒開班，不能打卡上班");
+        if (!"OPEN".equals(shift.getFirst().get("status")))
             throw ApiException.conflict("今天已經關班，不能打卡上班");
-        if (shiftStaff.existsByBusinessDateAndStaffIdAndClockOutAtIsNull(date, staffId))
+        if (shiftStaff.findFirstByStaffIdAndBusinessDateGreaterThanEqualAndClockOutAtIsNullAndClockOutSourceIsNullOrderByClockInAtDesc(staffId, today().minusDays(1)).isPresent())
             throw ApiException.conflict("這位員工已經在班，請先打卡下班");
         return toResponse(shiftStaff.saveAndFlush(new ShiftStaff(date, staffId, LocalDateTime.now(clock))));
     }
 
     public Response clockOut(long staffId) {
-        var record = shiftStaff.findFirstByBusinessDateAndStaffIdAndClockOutAtIsNull(today(), staffId)
+        var candidate = shiftStaff.findFirstByStaffIdAndBusinessDateGreaterThanEqualAndClockOutAtIsNullAndClockOutSourceIsNullOrderByClockInAtDesc(staffId, today().minusDays(1))
                 .orElseThrow(() -> ApiException.conflict("這位員工目前不在班"));
-        record.setClockOutAt(LocalDateTime.now(clock));
-        return toResponse(shiftStaff.saveAndFlush(record));
+        pos.rows("SELECT status FROM daily_shift WHERE business_date=? FOR UPDATE", candidate.getBusinessDate());
+        int changed = pos.update("""
+            UPDATE shift_staff SET clock_out_at=?, clock_out_source='SELF'
+            WHERE shift_staff_id=? AND clock_out_at IS NULL AND clock_out_source IS NULL
+            """, LocalDateTime.now(clock), candidate.getId());
+        if (changed == 0) throw ApiException.conflict("這位員工目前不在班");
+        entityManager.refresh(candidate);
+        return toResponse(candidate);
     }
 
     // ---------- 查詢 ----------
@@ -78,7 +87,7 @@ public class ShiftStaffService {
     /** 目前在班的人（今天、還沒打卡下班）。 */
     @Transactional(readOnly = true)
     public List<Response> onDuty() {
-        return toResponses(shiftStaff.findByBusinessDateAndClockOutAtIsNullOrderByClockInAtAsc(today()));
+        return toResponses(shiftStaff.findByBusinessDateAndClockOutAtIsNullAndClockOutSourceIsNullOrderByClockInAtAsc(today()));
     }
 
     /** 某營業日的打卡紀錄（不填為今天）。店長看全部，其他人只看自己的。 */
@@ -97,7 +106,7 @@ public class ShiftStaffService {
     public List<Response> mine(java.time.YearMonth month, String username) {
         var me = orders.actor(username);
         var m = month == null ? java.time.YearMonth.from(today()) : month;
-        return toResponses(shiftStaff.findByStaffIdAndBusinessDateBetweenOrderByClockInAtAsc(me.id(), m.atDay(1), m.atEndOfMonth()));
+        return toResponses(shiftStaff.findByStaffIdAndBusinessDateBetweenOrderByBusinessDateDescClockInAtDescIdDesc(me.id(), m.atDay(1), m.atEndOfMonth()));
     }
 
     /** 店長查詢某月份打卡紀錄（可指定特定員工，未指定查全員）。 */
@@ -108,9 +117,9 @@ public class ShiftStaffService {
         LocalDate from = m.atDay(1), to = m.atEndOfMonth();
         List<ShiftStaff> records;
         if (staffId != null) {
-            records = shiftStaff.findByStaffIdAndBusinessDateBetweenOrderByClockInAtAsc(staffId, from, to);
+            records = shiftStaff.findByStaffIdAndBusinessDateBetweenOrderByBusinessDateDescClockInAtDescIdDesc(staffId, from, to);
         } else {
-            records = shiftStaff.findByBusinessDateBetweenOrderByBusinessDateAscClockInAtAsc(from, to);
+            records = shiftStaff.findByBusinessDateBetweenOrderByBusinessDateDescClockInAtDescIdDesc(from, to);
         }
         return toResponses(records);
     }
@@ -122,16 +131,17 @@ public class ShiftStaffService {
         boolean manager = MANAGER_LEVELS.contains(viewer.level());
         var date = today();
         String status = shifts.findById(date).map(s -> s.getStatus().toUpperCase()).orElse("NONE");
-        var filtered = shiftStaff.findByBusinessDateOrderByClockInAtAsc(date).stream()
-                .filter(s -> manager || s.getClockOutAt() == null || s.getStaffId().equals(viewer.id()))
-                .toList();
+        var filtered = new java.util.ArrayList<>(shiftStaff.findByBusinessDateOrderByClockInAtAsc(date).stream()
+                .filter(s -> manager || s.isOnDuty() || s.getStaffId().equals(viewer.id()))
+                .toList());
+        if (isPos(viewer)) filtered.addAll(shiftStaff.findByBusinessDateAndClockOutAtIsNullAndClockOutSourceIsNull(date.minusDays(1)));
         return new com.example.drinkshop.dto.ShiftStaffDtos.Today(date, status, toResponses(filtered), manager);
     }
 
     /** 給其他功能使用（例如 checklist 打勾）：這位員工今天是否在班。 */
     @Transactional(readOnly = true)
     public boolean isOnDuty(long staffId) {
-        return shiftStaff.existsByBusinessDateAndStaffIdAndClockOutAtIsNull(today(), staffId);
+        return shiftStaff.existsByBusinessDateAndStaffIdAndClockOutAtIsNullAndClockOutSourceIsNull(today(), staffId);
     }
 
     // ---------- 店長修改 ----------
@@ -139,15 +149,18 @@ public class ShiftStaffService {
     public Response update(long id, Update request, String username) {
         var manager = requireManager(username);
         var record = find(id);
+        pos.rows("SELECT status FROM daily_shift WHERE business_date=? FOR UPDATE", record.getBusinessDate());
+        entityManager.refresh(record);
         if (request.clockOutAt() != null && request.clockOutAt().isBefore(request.clockInAt()))
             throw ApiException.bad("下班時間不能早於上班時間");
         // 改回「還在班」時，不能跟同一人同一天另一筆在班紀錄重複
-        if (request.clockOutAt() == null && record.getClockOutAt() != null
-                && shiftStaff.existsByBusinessDateAndStaffIdAndClockOutAtIsNull(record.getBusinessDate(),
+        if (request.clockOutAt() == null && !record.isOnDuty()
+                && shiftStaff.existsByBusinessDateAndStaffIdAndClockOutAtIsNullAndClockOutSourceIsNull(record.getBusinessDate(),
                         record.getStaffId()))
             throw ApiException.conflict("這位員工已經有一筆在班紀錄");
         record.setClockInAt(request.clockInAt());
         record.setClockOutAt(request.clockOutAt());
+        record.setClockOutSource(null);
         record.setUpdatedBy(manager.id());
         record.setUpdatedAt(LocalDateTime.now(clock));
         return toResponse(shiftStaff.saveAndFlush(record));
@@ -212,6 +225,7 @@ public class ShiftStaffService {
     }
 
     private String determineCloseType(ShiftStaff s, DailyShift shift) {
+        if (s.getClockOutSource() != null) return s.getClockOutSource();
         if (s.getClockOutAt() == null)
             return null;
         if (s.getUpdatedBy() != null)
@@ -259,7 +273,7 @@ public class ShiftStaffService {
             LocalTime schedStart = sched == null ? null : sched.getStartTime();
             LocalTime schedEnd = sched == null ? null : sched.getEndTime();
             result.add(new Response(s.getId(), s.getBusinessDate(), s.getStaffId(), nameMap.get(s.getStaffId()),
-                    s.getClockInAt(), s.getClockOutAt(), s.getClockOutAt() == null, s.getUpdatedBy(), s.getUpdatedAt(),
+                    s.getClockInAt(), s.getClockOutAt(), s.isOnDuty(), s.getUpdatedBy(), s.getUpdatedAt(),
                     schedStart, schedEnd, closeType));
         }
         return result;

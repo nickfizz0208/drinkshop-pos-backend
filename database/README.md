@@ -32,6 +32,8 @@ Workbench 預設開啟 Safe Updates，會擋下 006 的 UPDATE（Error 1175）�
 14. 依序執行 028_sale_status、029_material_category、030_product_size_prices、031_menu_tea_milk。028_sale_status、029、030 含 DDL，部分套用後應先核對欄位、價格與訂單容量，再接續未完成的步驟。
 15. 依序執行 032–046（飲品色系、茶類色系、其他商品、特調芝芝、咖色、菜單加料、溫度冰量甜度、加料份數、加料上限、客製選項、限冷飲加料、半成品用半成品做、材料停售連動、停售管理頁顯示、組合飲品），說明見下方各節。這版後端需要 032、038、039、040、041、043、044、045、046。
 
+16. 依序執行 047–049，新增打卡補登來源、飲品售完標記與跨日排班支援。排班補登由本機設定 `pos.clock-out.apply-from` 指定首筆適用的上班打卡時間（台北時間，例如 `2026-11-24T09:00:00`）。先設定啟用時刻，再啟動服務，才會處理適用的打卡。
+
 **舊檔名對照**：原 `022_sale_status.sql` → `028_sale_status.sql`、`023_material_category.sql` → `029_material_category.sql`、`024_product_size_prices.sql` → `030_product_size_prices.sql`、`025_menu_tea_milk.sql` → `031_menu_tea_milk.sql`。若某一步已用舊檔名套用，勿因改名重跑。`022_recipe_portions.sql` 是另一支配方升級檔，編號維持原樣。
 
 014 加入 POS 職級。櫃台登入需要有效的 POS 帳號。啟用 demo 初始化時會建立缺少的 `staff`、`manager`、`pos`，使用 `pos` 在畫面上開班。

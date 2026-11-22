@@ -22,7 +22,8 @@ public final class ShiftStaffDtos {
 
     /**
      * scheduledStartTime / scheduledEndTime：店長排班時間（若有排班）
-     * closeType：SELF（員工自行打卡下班）、AUTO_SHIFT_CLOSE（隨門市關班下班）、AUTO_MIDNIGHT（逾午夜強制下班）、MANAGER（店長修改）
+     * closeType：SELF 自行打卡、AUTO_SCHEDULE 依排班補登、REVIEW 待店長確認、
+     * AUTO_SHIFT_CLOSE 隨門市關班、AUTO_MIDNIGHT 舊版午夜補登、MANAGER 店長修改。
      */
     public record Response(Long shiftStaffId, LocalDate businessDate, Long staffId, String staffName,
                            LocalDateTime clockInAt, LocalDateTime clockOutAt, boolean onDuty,

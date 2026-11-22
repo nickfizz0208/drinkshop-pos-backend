@@ -51,11 +51,14 @@ public class PosController {
     Map<String,Object> menu() {
         // 點餐菜單只列必要欄位，不能把扣料配方或帳號密碼雜湊傳給前端。
         // 容量價格（030）：price_m、price_l、price_bottle，null＝這杯不賣這個容量。
-        // 停售的不列：自己停售，或用到的原料、半成品停售（028，見 SaleStatusRepository）。
+        // 不可售飲品另列，購物車無法加入，保留 products 只回傳可售的契約。
         // 組合（046）：main＝可以當組合底的飲品；free＝可以組合、在奶茶鮮奶首份免費的加料。
         // 色系（032）：color_tone＝RED、ORANGE、YELLOW、GREEN、PURPLE、WHITE、CREAM、BROWN（紅橙黃綠紫白奶咖，BROWN 見 036），null＝前端依名稱、分類自動判斷。
         return Map.of("products",repo.rows("SELECT p.product_id,p.name,p.category,p.price_m,p.price_l,p.price_bottle,p.hot_allowed,p.color_tone,p.main FROM product p WHERE "
                 +SaleStatusRepository.PRODUCT_SELLABLE+" ORDER BY p.product_id"),
+            "unavailableProducts",repo.rows("SELECT p.product_id,p.name,p.category,p.price_m,p.price_l,p.price_bottle,p.hot_allowed,p.color_tone,p.main,"
+                +" CASE WHEN p.on_sale=TRUE AND p.sold_out=TRUE THEN 'SOLD_OUT' ELSE 'STOPPED' END AS availability"
+                +" FROM product p WHERE NOT ("+SaleStatusRepository.PRODUCT_SELLABLE+") ORDER BY p.product_id"),
             "toppings",repo.rows("SELECT t.topping_id,t.name,t.price,t.max_qty,t.free FROM topping t WHERE "+SaleStatusRepository.TOPPING_SELLABLE+" ORDER BY t.topping_id"),
             // 客製選項（041）：不用錢，照 sort_order 排
             "options",repo.rows("SELECT option_id,name,max_qty FROM custom_option WHERE active=TRUE ORDER BY sort_order,option_id"));

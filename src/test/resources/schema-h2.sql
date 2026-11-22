@@ -51,6 +51,7 @@ CREATE TABLE inventory (
 );
 
 CREATE TABLE product (
+  sold_out BOOLEAN NOT NULL DEFAULT FALSE,
   product_id BIGINT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(50) NOT NULL UNIQUE,
   category VARCHAR(30) NOT NULL,
@@ -222,7 +223,6 @@ CREATE TABLE order_item (
   FOREIGN KEY (approved_by) REFERENCES staff_account(staff_id),
   INDEX idx_item_order_status (order_id, status),
   CHECK (qty > 0 AND unit_price >= 0),
-  CHECK (temperature = 'COLD' OR ice = 'NONE'),
   CHECK (status NOT IN ('CANCELLED','WASTED') OR (reason IS NOT NULL AND CHAR_LENGTH(TRIM(reason)) > 0)),
   CHECK (status <> 'WASTED' OR approved_by IS NOT NULL)
 );
@@ -297,6 +297,7 @@ CREATE TABLE shift_staff (
   staff_id BIGINT NOT NULL,
   clock_in_at DATETIME(6) NOT NULL,
   clock_out_at DATETIME(6) NULL,
+  clock_out_source VARCHAR(24) NULL,
   updated_by BIGINT NULL,
   updated_at DATETIME(6) NULL,
   FOREIGN KEY (business_date) REFERENCES daily_shift(business_date),
@@ -312,7 +313,7 @@ CREATE TABLE shift_template (
   start_time TIME NOT NULL,
   end_time TIME NOT NULL,
   active BOOLEAN NOT NULL DEFAULT TRUE,
-  CHECK (end_time > start_time)
+  CHECK (end_time <> start_time)
 );
 
 CREATE TABLE staff_schedule (
@@ -328,7 +329,7 @@ CREATE TABLE staff_schedule (
   FOREIGN KEY (staff_id) REFERENCES staff_account(staff_id),
   FOREIGN KEY (template_id) REFERENCES shift_template(template_id),
   FOREIGN KEY (created_by) REFERENCES staff_account(staff_id),
-  CHECK (end_time > start_time)
+  CHECK (end_time <> start_time)
 );
 
 CREATE TABLE schedule_week (
@@ -350,7 +351,7 @@ CREATE TABLE staff_schedule_published (
   note VARCHAR(100) NULL,
   FOREIGN KEY (staff_id) REFERENCES staff_account(staff_id),
   FOREIGN KEY (template_id) REFERENCES shift_template(template_id),
-  CHECK (end_time > start_time)
+  CHECK (end_time <> start_time)
 );
 CREATE INDEX idx_schedule_published_date ON staff_schedule_published(work_date);
 

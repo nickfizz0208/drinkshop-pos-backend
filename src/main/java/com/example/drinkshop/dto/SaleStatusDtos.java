@@ -33,7 +33,7 @@ public final class SaleStatusDtos {
 
     /** 飲品。stoppedBy：讓它不能賣的原料、半成品名稱（自己停售不列在這裡）。 */
     public record ProductStatus(long productId, String name, String category, boolean onSale, boolean sellable,
-                                List<Long> inventoryIds, List<Long> prepIds, List<String> stoppedBy, boolean show) {}
+                                List<Long> inventoryIds, List<Long> prepIds, List<String> stoppedBy, boolean show, boolean soldOut) {}
 
     /** 加料：指向一項原料或一項半成品。 */
     public record ToppingStatus(long toppingId, String name, boolean onSale, boolean sellable,
@@ -52,10 +52,13 @@ public final class SaleStatusDtos {
     /** 一項變更：onSale = false 停售、true 恢復販售。 */
     public record Change(@NotNull @Positive Long id, @NotNull Boolean onSale) {}
 
+    public record StockChange(@NotNull @Positive Long id, @NotNull Boolean soldOut) {}
+
     /** 一次儲存多項變更；沒有變更的種類可以不給。 */
     public record Update(
         @Size(max = 500) List<@Valid @NotNull Change> inventories,
         @Size(max = 500) List<@Valid @NotNull Change> preps,
         @Size(max = 500) List<@Valid @NotNull Change> products,
-        @Size(max = 500) List<@Valid @NotNull Change> toppings) {}
+        @Size(max = 500) List<@Valid @NotNull Change> toppings,
+        @Size(max = 500) List<@Valid @NotNull StockChange> soldOutProducts) {}
 }

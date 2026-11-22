@@ -96,7 +96,7 @@ public class SaleStatusService {
             var stoppedBy = stoppedBy(inv, preps, invName, invStopped, prepName, prepSelfStopped, prepAllInv, prepAllSub);
             boolean onSale = flag(r, "on_sale");
             products.add(new ProductStatus(pid, (String) r.get("name"), (String) r.get("category"), onSale,
-                onSale && stoppedBy.isEmpty(), List.copyOf(inv), List.copyOf(preps), stoppedBy, flag(r, "show_in_sale")));
+                onSale && !flag(r, "sold_out") && stoppedBy.isEmpty(), List.copyOf(inv), List.copyOf(preps), stoppedBy, flag(r, "show_in_sale"), flag(r, "sold_out")));
         }
 
         List<ToppingStatus> toppings = new ArrayList<>();
@@ -143,6 +143,14 @@ public class SaleStatusService {
         total += apply(Kind.PREP, request.preps());
         total += apply(Kind.PRODUCT, request.products());
         total += apply(Kind.TOPPING, request.toppings());
+        if (request.soldOutProducts() != null) {
+            Set<Long> seen = new HashSet<>();
+            for (var change : request.soldOutProducts()) {
+                if (!seen.add(change.id())) throw ApiException.bad("飲品售完設定重複：" + change.id());
+                if (repo.setSoldOut(change.id(), change.soldOut()) == 0) throw ApiException.missing("找不到這個飲品：" + change.id());
+                total++;
+            }
+        }
         if (total == 0) throw ApiException.bad("沒有要變更的項目");
         return status();
     }

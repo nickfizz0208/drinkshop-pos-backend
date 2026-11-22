@@ -27,6 +27,21 @@ UPDATE order_item SET temp_ice = CASE
   END
 WHERE item_id > 0;
 
+-- 基礎建表的 CHECK 依賴舊欄位，MySQL 會拒絕直接刪除。
+SET @old_temp_ice_check := (
+  SELECT tc.CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS tc
+  JOIN information_schema.CHECK_CONSTRAINTS cc
+    ON cc.CONSTRAINT_SCHEMA=tc.CONSTRAINT_SCHEMA AND cc.CONSTRAINT_NAME=tc.CONSTRAINT_NAME
+  WHERE tc.TABLE_SCHEMA=DATABASE() AND tc.TABLE_NAME='order_item'
+    AND tc.CONSTRAINT_TYPE='CHECK' AND LOWER(cc.CHECK_CLAUSE) LIKE '%temperature%'
+    AND LOWER(cc.CHECK_CLAUSE) LIKE '%ice%'
+);
+SET @drop_temp_ice_check := IF(@old_temp_ice_check IS NULL, 'DO 0',
+  CONCAT('ALTER TABLE order_item DROP CHECK `', REPLACE(@old_temp_ice_check, '`', '``'), '`'));
+PREPARE drop_temp_ice_check FROM @drop_temp_ice_check;
+EXECUTE drop_temp_ice_check;
+DEALLOCATE PREPARE drop_temp_ice_check;
+
 -- 2. 換好後改成必填，拿掉舊的溫度、冰量
 ALTER TABLE order_item
   MODIFY COLUMN temp_ice ENUM('HOT','WARM','ROOM','ICE_FREE','NO_ICE','LIGHT','LESS','NORMAL','EXTRA') NOT NULL,

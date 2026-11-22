@@ -203,9 +203,12 @@ public class ScheduleService {
 
     private SaveResult saved(StaffSchedule entry) {
         markModified(weekStart(entry.getWorkDate()));
-        var sameDay = schedules.findByWorkDateAndStaffId(entry.getWorkDate(), entry.getStaffId());
+        var date = entry.getWorkDate();
+        var nearby = schedules.findByWorkDateBetweenOrderByWorkDateAscStartTimeAscIdAsc(date.minusDays(1), date.plusDays(1))
+            .stream().filter(row -> row.getStaffId().equals(entry.getStaffId())
+                && (row.getWorkDate().equals(date) || schedulesOverlap(row, entry))).toList();
         var staffNames = staff.staffNames();
-        return new SaveResult(toResponse(entry, templateNames(), tagNames(), staffNames), overlapWarnings(sameDay, staffNames));
+        return new SaveResult(toResponse(entry, templateNames(), tagNames(), staffNames), overlapWarnings(nearby, staffNames));
     }
 
     /** 已發布的週草稿有任何修改，就標記「有尚未發布的修改」。 */
@@ -228,17 +231,25 @@ public class ScheduleService {
     }
 
     private void checkTimes(LocalTime start, LocalTime end) {
-        if (!end.isAfter(start)) throw ApiException.bad("下班時間必須晚於上班時間");
+        if (end.equals(start)) throw ApiException.bad("上班和下班時間不能相同");
     }
 
-    /** 同一人同一天時段重疊的提醒。 */
+    private static LocalDateTime scheduleEnd(StaffSchedule entry) {
+        return entry.getWorkDate().plusDays(entry.getEndTime().isBefore(entry.getStartTime()) ? 1 : 0).atTime(entry.getEndTime());
+    }
+
+    private static boolean schedulesOverlap(StaffSchedule a, StaffSchedule b) {
+        return a.getWorkDate().atTime(a.getStartTime()).isBefore(scheduleEnd(b))
+            && b.getWorkDate().atTime(b.getStartTime()).isBefore(scheduleEnd(a));
+    }
+
+    /** 同一人的時段重疊提醒（含跨日排班）。 */
     private List<String> overlapWarnings(List<StaffSchedule> rows, Map<Long, String> staffNames) {
         var warnings = new ArrayList<String>();
         for (int i = 0; i < rows.size(); i++) {
             for (int j = i + 1; j < rows.size(); j++) {
                 var a = rows.get(i); var b = rows.get(j);
-                if (a.getStaffId().equals(b.getStaffId()) && a.getWorkDate().equals(b.getWorkDate())
-                        && a.getStartTime().isBefore(b.getEndTime()) && b.getStartTime().isBefore(a.getEndTime())) {
+                if (a.getStaffId().equals(b.getStaffId()) && schedulesOverlap(a, b)) {
                     // 例：11月05日班表 POS 測試店員 時段重疊（10:00–13:00、10:00–18:00）
                     warnings.add(String.format("%d月%d日班表 %s 時段重疊\n（%s–%s、%s–%s）",
                         a.getWorkDate().getMonthValue(), a.getWorkDate().getDayOfMonth(), staffNames.get(a.getStaffId()),

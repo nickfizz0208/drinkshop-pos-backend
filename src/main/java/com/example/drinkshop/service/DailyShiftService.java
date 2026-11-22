@@ -42,10 +42,21 @@ public class DailyShiftService {
     }
 
     public ShiftClosingSummaryResponse closeShift(LocalDate date, Long staffId, BigDecimal countedCash, String diffReason) {
+        return closeShift(date, staffId, countedCash, diffReason, false);
+    }
+
+    public ShiftClosingSummaryResponse closeShiftFromPos(LocalDate date, Long staffId, BigDecimal countedCash, String diffReason) {
+        return closeShift(date, staffId, countedCash, diffReason, true);
+    }
+
+    private ShiftClosingSummaryResponse closeShift(LocalDate date, Long staffId, BigDecimal countedCash,
+                                                   String diffReason, boolean requireOnDuty) {
         // 與 POS 建單、退款和原料報廢共用同一把班次鎖；等待中的交易醒來後要再確認 OPEN。
         var rows = repo.rows("SELECT * FROM daily_shift WHERE business_date=? FOR UPDATE", date);
         if (rows.isEmpty()) throw ApiException.conflict("今天還沒開班，不能關班");
         if (!"OPEN".equals(rows.getFirst().get("status"))) throw ApiException.conflict("今天已經關班，不可重複關班");
+        if (requireOnDuty && !shiftStaffRepo.existsByBusinessDateAndStaffIdAndClockOutAtIsNullAndClockOutSourceIsNull(date, staffId))
+            throw ApiException.conflict("關班人員目前不在班，請選擇在班人員或先打卡上班");
         var shift = shifts.findById(date).orElseThrow();
         var sales = repo.one("""
             SELECT COALESCE(SUM(i.qty*i.unit_price),0) AS revenue, COALESCE(SUM(i.qty),0) AS cups
@@ -76,8 +87,9 @@ public class DailyShiftService {
         shifts.saveAndFlush(shift);
 
         // 關班時強制所有在班人員打卡下班
-        for (var onDutyStaff : shiftStaffRepo.findByBusinessDateAndClockOutAtIsNull(date)) {
+        for (var onDutyStaff : shiftStaffRepo.findByBusinessDateAndClockOutAtIsNullAndClockOutSourceIsNull(date)) {
             onDutyStaff.setClockOutAt(closedAt);
+            onDutyStaff.setClockOutSource("AUTO_SHIFT_CLOSE");
             shiftStaffRepo.save(onDutyStaff);
         }
         shiftStaffRepo.flush();
@@ -89,8 +101,7 @@ public class DailyShiftService {
 
     /**
      * 處理逾期未關班的歷史班次（如超過午夜 12 點未收班）：
-     * 1. 強制將未下班人員設為該營業日 23:59:59 下班
-     * 2. 自動結算並收班（以開班人為關班責任人、現金相符、原因標記為系統逾午夜自動收班）
+     * 自動結算並收班。個人工時由排班補登程序處理。
      */
     public int closeOverdueShifts(LocalDate today) {
         var overdue = shifts.findByBusinessDateBeforeAndStatus(today, "OPEN");
@@ -99,14 +110,9 @@ public class DailyShiftService {
             LocalDate date = shift.getBusinessDate();
             LocalDateTime midnight = date.atTime(23, 59, 59);
 
-            // 1. 強制打卡人員午夜下班
-            for (var onDuty : shiftStaffRepo.findByBusinessDateAndClockOutAtIsNull(date)) {
-                onDuty.setClockOutAt(midnight);
-                shiftStaffRepo.save(onDuty);
-            }
-            shiftStaffRepo.flush();
-
-            // 2. 計算營收與收款
+            var locked = repo.rows("SELECT status FROM daily_shift WHERE business_date=? FOR UPDATE", date);
+            if (locked.isEmpty() || !"OPEN".equals(locked.getFirst().get("status"))) continue;
+            // 計算營收與收款
             var sales = repo.one("""
                 SELECT COALESCE(SUM(i.qty*i.unit_price),0) AS revenue, COALESCE(SUM(i.qty),0) AS cups
                 FROM order_item i JOIN pos_order o ON o.order_id=i.order_id

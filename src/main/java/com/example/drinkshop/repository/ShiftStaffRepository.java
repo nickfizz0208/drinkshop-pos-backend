@@ -8,10 +8,10 @@ import java.util.Optional;
 
 public interface ShiftStaffRepository extends JpaRepository<ShiftStaff, Long> {
     List<ShiftStaff> findByBusinessDateOrderByClockInAtAsc(LocalDate businessDate);
-    List<ShiftStaff> findByBusinessDateAndClockOutAtIsNull(LocalDate businessDate);
-    List<ShiftStaff> findByBusinessDateAndClockOutAtIsNullOrderByClockInAtAsc(LocalDate businessDate);
-    Optional<ShiftStaff> findFirstByBusinessDateAndStaffIdAndClockOutAtIsNull(LocalDate businessDate, Long staffId);
-    List<ShiftStaff> findByStaffIdAndBusinessDateBetweenOrderByClockInAtAsc(Long staffId, LocalDate from, LocalDate to);
-    List<ShiftStaff> findByBusinessDateBetweenOrderByBusinessDateAscClockInAtAsc(LocalDate from, LocalDate to);
-    boolean existsByBusinessDateAndStaffIdAndClockOutAtIsNull(LocalDate businessDate, Long staffId);
+    List<ShiftStaff> findByBusinessDateAndClockOutAtIsNullAndClockOutSourceIsNull(LocalDate businessDate);
+    List<ShiftStaff> findByBusinessDateAndClockOutAtIsNullAndClockOutSourceIsNullOrderByClockInAtAsc(LocalDate businessDate);
+    Optional<ShiftStaff> findFirstByStaffIdAndBusinessDateGreaterThanEqualAndClockOutAtIsNullAndClockOutSourceIsNullOrderByClockInAtDesc(Long staffId, LocalDate since);
+    List<ShiftStaff> findByStaffIdAndBusinessDateBetweenOrderByBusinessDateDescClockInAtDescIdDesc(Long staffId, LocalDate from, LocalDate to);
+    List<ShiftStaff> findByBusinessDateBetweenOrderByBusinessDateDescClockInAtDescIdDesc(LocalDate from, LocalDate to);
+    boolean existsByBusinessDateAndStaffIdAndClockOutAtIsNullAndClockOutSourceIsNull(LocalDate businessDate, Long staffId);
 }

@@ -44,6 +44,16 @@ public class ConsumptionController {
                 SELECT root_id AS prep_id, inventory_id, SUM(qty) AS qty
                 FROM prep_expand WHERE inventory_id IS NOT NULL
                 GROUP BY root_id, inventory_id
+            ), historical_cups AS (
+                SELECT oi.item_id, o.business_date, i.inventory_id,
+                       CAST(JSON_UNQUOTE(JSON_EXTRACT(oi.deducted_inventory_json,
+                           CONCAT('$."', i.inventory_id, '"'))) AS DECIMAL(20,6)) AS qty
+                FROM pos_order o
+                JOIN order_item oi ON oi.order_id = o.order_id
+                JOIN inventory i ON i.name LIKE '%紙杯%' AND JSON_CONTAINS_PATH(
+                    oi.deducted_inventory_json, 'one', CONCAT('$."', i.inventory_id, '"'))
+                WHERE o.status != 'CANCELLED' AND oi.status != 'CANCELLED'
+                  AND YEAR(o.business_date) = ? AND MONTH(o.business_date) = ?
             )
             SELECT 
                 DATE_FORMAT(c.business_date, '%Y-%m-%d') AS business_date,
@@ -60,6 +70,7 @@ public class ConsumptionController {
                 JOIN product_recipe pr ON pr.product_id = oi.product_id
                 WHERE o.status != 'CANCELLED' AND oi.status != 'CANCELLED'
                   AND pr.inventory_id IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM historical_cups h WHERE h.item_id=oi.item_id AND h.inventory_id=pr.inventory_id)
                   AND YEAR(o.business_date) = ? AND MONTH(o.business_date) = ?
                 GROUP BY o.business_date, pr.inventory_id
 
@@ -73,6 +84,7 @@ public class ConsumptionController {
                 JOIN prep_flat pf ON pf.prep_id = pr.prep_id
                 WHERE o.status != 'CANCELLED' AND oi.status != 'CANCELLED'
                   AND pr.prep_id IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM historical_cups h WHERE h.item_id=oi.item_id AND h.inventory_id=pf.inventory_id)
                   AND YEAR(o.business_date) = ? AND MONTH(o.business_date) = ?
                 GROUP BY o.business_date, pf.inventory_id
 
@@ -105,6 +117,11 @@ public class ConsumptionController {
 
                 UNION ALL
 
+                -- 舊單紙杯依當時扣料快照，避免現行配方缺少杯材或重算。
+                SELECT business_date, inventory_id, SUM(qty) FROM historical_cups GROUP BY business_date, inventory_id
+
+                UNION ALL
+
                 -- 4. 原料報廢消耗
                 SELECT w.business_date, w.inventory_id, SUM(w.quantity) AS qty
                 FROM raw_material_wastage w
@@ -116,7 +133,7 @@ public class ConsumptionController {
             ORDER BY c.business_date ASC, c.inventory_id ASC
         """.replace("{MAX_LEVELS}", String.valueOf(SaleStatusRepository.MAX_SUB_PREP_LEVELS));
 
-        List<Map<String, Object>> records = jdbc.queryForList(sql, year, month, year, month, year, month, year, month, year, month);
+        List<Map<String, Object>> records = jdbc.queryForList(sql, year, month, year, month, year, month, year, month, year, month, year, month);
 
         List<Map<String, Object>> allMaterials = jdbc.queryForList(
             "SELECT inventory_id, name, base_unit FROM inventory ORDER BY inventory_id"

@@ -19,7 +19,9 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 import static com.example.drinkshop.TestLogin.login;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -59,11 +61,14 @@ public class NewModulesIntegrationTest {
     @Autowired
     private ObjectMapper mapper;
 
+    @Autowired
+    private Clock clock;
+
     @org.springframework.boot.test.context.TestConfiguration
     static class TestClock {
         @org.springframework.context.annotation.Bean @org.springframework.context.annotation.Primary
-        java.time.Clock fixedClock() {
-            return java.time.Clock.fixed(java.time.Instant.parse("2026-10-28T03:00:00Z"),java.time.ZoneId.of("Asia/Taipei"));
+        Clock fixedClock() {
+            return Clock.fixed(java.time.Instant.parse("2026-10-28T03:00:00Z"),java.time.ZoneId.of("Asia/Taipei"));
         }
     }
 
@@ -88,6 +93,75 @@ public class NewModulesIntegrationTest {
                 "VALUES (11, 'opener', ?, '開班店員', 'STAFF', TRUE)", passwordEncoder.encode(TEST_PASS));
         jdbc.update("INSERT INTO staff_account(staff_id, username, password_hash, name, level, active) " +
                 "VALUES (12, 'left_staff', ?, '離職店員', 'STAFF', FALSE)", passwordEncoder.encode(TEST_PASS));
+    }
+
+    @Autowired com.example.drinkshop.repository.PosRepository pos;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
+
+    @Test
+    void scheduledClockOutUsesPublishedEndAndKeepsUnmatchedPunchForReview() {
+        var day = LocalDate.of(2026, 10, 28);
+        jdbc.update("INSERT INTO staff_schedule_published(work_date,staff_id,start_time,end_time) VALUES (?,?,?,?)",
+            day, 11L, java.time.LocalTime.of(22, 0), java.time.LocalTime.of(2, 0));
+        jdbc.update("INSERT INTO shift_staff(business_date,staff_id,clock_in_at) VALUES (?,?,?),(?,?,?),(?,?,?)",
+            day, 11L, day.atTime(21, 55), day, 10L, day.atTime(23, 0), day, 12L, day.atTime(3, 0));
+        jdbc.update("""
+            UPDATE daily_shift SET status='CLOSED', closed_by=11, closed_at=?, cups=0,
+                expected_cash=petty_cash, counted_cash=petty_cash, revenue_by_payment='{}'
+            WHERE business_date=?
+            """, day.atTime(23, 59, 59), day);
+        var restart = new org.springframework.transaction.support.TransactionTemplate(transactions);
+        var zone = clock.getZone();
+        var start = day.atTime(20, 0);
+        var cutoff = day.plusDays(1).atTime(4, 0);
+        var notYet = Clock.fixed(cutoff.minusSeconds(1).atZone(zone).toInstant(), zone);
+        restart.executeWithoutResult(status -> new com.example.drinkshop.service.ScheduledClockOut(
+            pos, jdbc, notYet, start.toString()).process());
+        org.junit.jupiter.api.Assertions.assertNull(jdbc.queryForObject(
+            "SELECT clock_out_at FROM shift_staff WHERE staff_id=11", LocalDateTime.class));
+
+        var restartedClock = Clock.fixed(cutoff.atZone(zone).toInstant(), zone);
+        restart.executeWithoutResult(status -> {
+            var job = new com.example.drinkshop.service.ScheduledClockOut(pos, jdbc, restartedClock, start.toString());
+            job.process();
+            job.process();
+        });
+        org.junit.jupiter.api.Assertions.assertEquals(day.plusDays(1).atTime(2, 0), jdbc.queryForObject(
+            "SELECT clock_out_at FROM shift_staff WHERE staff_id=11", LocalDateTime.class));
+        org.junit.jupiter.api.Assertions.assertEquals("AUTO_SCHEDULE", jdbc.queryForObject(
+            "SELECT clock_out_source FROM shift_staff WHERE staff_id=11", String.class));
+        org.junit.jupiter.api.Assertions.assertEquals("REVIEW", jdbc.queryForObject(
+            "SELECT clock_out_source FROM shift_staff WHERE staff_id=10", String.class));
+        org.junit.jupiter.api.Assertions.assertNull(jdbc.queryForObject(
+            "SELECT clock_out_at FROM shift_staff WHERE staff_id=10", LocalDateTime.class));
+        org.junit.jupiter.api.Assertions.assertNull(jdbc.queryForObject(
+            "SELECT clock_out_source FROM shift_staff WHERE staff_id=12", String.class));
+    }
+
+    @Test
+    void monthlyClockRecordsDescendingAndLimitedToSelectedMonth() throws Exception {
+        jdbc.update("UPDATE staff_account SET active=TRUE, password_hash=? WHERE staff_id=2", passwordEncoder.encode(TEST_PASS));
+        jdbc.update("UPDATE staff_account SET password_hash=? WHERE staff_id=11", passwordEncoder.encode(TEST_PASS));
+        for (String date : new String[]{"2026-10-29", "2026-11-01"}) {
+            jdbc.update("INSERT INTO daily_shift(business_date,status,opened_by,opened_at,petty_cash,roles_json) VALUES (?,'OPEN',11,?,0,'[]')",
+                date, LocalDate.parse(date).atTime(8, 0));
+        }
+        for (String stamp : new String[]{"2026-10-28T09:00","2026-10-29T10:00","2026-10-29T08:00","2026-11-01T11:00"}) {
+            var in = LocalDateTime.parse(stamp);
+            jdbc.update("INSERT INTO shift_staff(business_date,staff_id,clock_in_at,clock_out_at) VALUES (?,11,?,?)",
+                in.toLocalDate(), in, in.plusHours(1));
+        }
+        for (String path : new String[]{"mine", "monthly"}) {
+            var actor = path.equals("mine") ? "opener" : "demo_manager";
+            mockMvc.perform(get("/api/shift-staff/" + path).param("month","2026-10").with(login(actor, TEST_PASS)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].clockInAt").value("2026-10-29T10:00:00"))
+                .andExpect(jsonPath("$[1].clockInAt").value("2026-10-29T08:00:00"))
+                .andExpect(jsonPath("$[2].clockInAt").value("2026-10-28T09:00:00"));
+            mockMvc.perform(get("/api/shift-staff/" + path).param("month","2026-11").with(login(actor, TEST_PASS)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].clockInAt").value("2026-11-01T11:00:00"));
+        }
     }
 
     @Test
@@ -181,7 +255,7 @@ public class NewModulesIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("關班人員目前不在班，請選擇在班人員或先打卡上班"));
         // 員工 11 打卡在班後即可關班
-        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES (?, 11, CURRENT_TIMESTAMP)", testDate);
+        insertClockIn(testDate, LocalDateTime.now(clock).minusHours(1));
         mockMvc.perform(post("/api/daily-shifts/close")
                         .with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -223,7 +297,7 @@ public class NewModulesIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(reopen))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("今天還在營業中，不用重新開班"));
-        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES (?, 11, CURRENT_TIMESTAMP)", testDate);
+        insertClockIn(testDate, LocalDateTime.now(clock).minusHours(1));
         mockMvc.perform(post("/api/daily-shifts/close").with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new CloseShiftRequest(testDate, new BigDecimal("1500"), null, 11L))))
@@ -237,7 +311,7 @@ public class NewModulesIntegrationTest {
                 .andExpect(jsonPath("$.openedBy").value(11))
                 .andExpect(jsonPath("$.pettyCash").value(1500.0));
         // 重新開班並再次打卡上班後，可以再關一次
-        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES (?, 11, CURRENT_TIMESTAMP)", testDate);
+        insertClockIn(testDate, LocalDateTime.now(clock));
         mockMvc.perform(post("/api/daily-shifts/close").with(login(TEST_USER, TEST_PASS))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new CloseShiftRequest(testDate, new BigDecimal("1500"), null, 11L))))
@@ -253,7 +327,7 @@ public class NewModulesIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new OpenShiftRequest(testDate, new BigDecimal("2000"), "[]", 11L))))
                 .andExpect(status().isCreated());
-        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES (?, 11, CURRENT_TIMESTAMP)", testDate);
+        insertClockIn(testDate, LocalDateTime.now(clock).minusHours(1));
         // 短少 10 元沒寫原因：400，班次維持 OPEN
         mockMvc.perform(post("/api/daily-shifts/close")
                         .with(login(TEST_USER, TEST_PASS))
@@ -270,6 +344,11 @@ public class NewModulesIntegrationTest {
                         .content(mapper.writeValueAsString(new CloseShiftRequest(testDate, new BigDecimal("1990"), "找錯零錢", 11L))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.diffAmount").value(-10.0));
+    }
+
+    private void insertClockIn(LocalDate businessDate, LocalDateTime clockInAt) {
+        jdbc.update("INSERT INTO shift_staff(business_date, staff_id, clock_in_at) VALUES (?, 11, ?)",
+                businessDate, clockInAt);
     }
 
     @Test

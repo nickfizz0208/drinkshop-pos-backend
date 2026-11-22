@@ -39,7 +39,7 @@ public class SaleStatusRepository {
         return sql + "))";
     }
     /** 飲品（別名 p）現在能不能賣。點餐菜單用。 */
-    public static final String PRODUCT_SELLABLE = "p.on_sale = TRUE AND NOT EXISTS (SELECT 1 FROM product_recipe ss_r"
+    public static final String PRODUCT_SELLABLE = "p.on_sale = TRUE AND p.sold_out = FALSE AND NOT EXISTS (SELECT 1 FROM product_recipe ss_r"
         + " WHERE ss_r.product_id = p.product_id AND (" + inventoryStopped("ss_r.inventory_id") + " OR " + prepStopped("ss_r.prep_id", 0) + "))";
     /** 加料（別名 t）現在能不能賣。點餐菜單用。 */
     public static final String TOPPING_SELLABLE = "t.on_sale = TRUE AND NOT " + inventoryStopped("t.inventory_id")
@@ -95,13 +95,17 @@ public class SaleStatusRepository {
         return jdbc.queryForList("SELECT prep_id, inventory_id, sub_prep_id, link FROM prep_item_ingredient ORDER BY prep_id, line_id");
     }
     public List<Map<String, Object>> products() {
-        return jdbc.queryForList("SELECT product_id, name, category, on_sale, show_in_sale FROM product ORDER BY product_id");
+        return jdbc.queryForList("SELECT product_id, name, category, on_sale, show_in_sale, sold_out FROM product ORDER BY product_id");
     }
     public List<Map<String, Object>> recipeLines() {
         return jdbc.queryForList("SELECT product_id, inventory_id, prep_id FROM product_recipe ORDER BY product_id, sort_order, line_id");
     }
     public List<Map<String, Object>> toppings() {
         return jdbc.queryForList("SELECT topping_id, name, on_sale, show_in_sale, inventory_id, prep_id FROM topping ORDER BY topping_id");
+    }
+
+    public int setSoldOut(long id, boolean soldOut) {
+        return jdbc.update("UPDATE product SET sold_out=? WHERE product_id=?", soldOut, id);
     }
 
     /** 改一項的 on_sale；回傳改到幾列（0＝找不到）。table、key 只用程式內的固定值。 */
