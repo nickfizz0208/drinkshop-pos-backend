@@ -27,6 +27,13 @@ public class RecipeController {
     @GetMapping("/categories")
     List<String> categories(Principal principal) { return recipes.categories(principal.getName()); }
 
+    // 總部編輯配方時可挑選的半成品與原料清單
+    @GetMapping("/materials")
+    List<MaterialOption> materialOptions(Principal principal, HttpServletResponse response) {
+        noStore(response);
+        return recipes.materialOptions(principal.getName());
+    }
+
     // GET /api/recipes/{productId}：配方存在飲品上，所以 ID 是 product_id
     @GetMapping("/{productId}")
     RecipeDetail detail(Principal principal, @PathVariable("productId") long productId, HttpServletResponse response) {
