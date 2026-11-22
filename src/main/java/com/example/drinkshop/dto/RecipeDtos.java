@@ -23,6 +23,9 @@ public final class RecipeDtos {
     // 中杯、大杯共用同一份材料清單（021）
     public record RecipeMaterial(MaterialKind kind, long id, String name, List<String> madeFrom, BigDecimal portions) {}
 
+    // 總部編輯配方時可選用的原料與半成品清單
+    public record MaterialOption(MaterialKind kind, long id, String name, List<String> madeFrom) {}
+
     // 詳情：steps 是 null 代表沒有記錄製作步驟；standardRecipe 固定 true，提醒這是標準配方
     public record RecipeDetail(long productId, String name, String category, RecipeStatus recipeStatus,
                                boolean standardRecipe, List<RecipeMaterial> materials, String steps,

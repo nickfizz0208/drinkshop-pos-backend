@@ -20,87 +20,118 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.*;
 import java.util.List;
 
-/** 員工登入與 API 權限：POST /api/auth/login 用帳密換 JWT，之後每次請求帶 Authorization: Bearer <token>。 */
+/**
+ * 員工登入與 API 權限：POST /api/auth/login 用帳密換 JWT，之後每次請求帶 Authorization: Bearer
+ * <token>。
+ */
 @Configuration
 public class SecurityConfig {
-    @Bean PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
+    @Bean
+    PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
     // 從員工資料表載入密碼雜湊、等級與在職狀態；明文密碼由 BCrypt 比對。
-    @Bean UserDetailsService users(PosRepository repo) {
+    @Bean
+    UserDetailsService users(PosRepository repo) {
         return username -> {
             var staff = repo.staff(username).orElseThrow(() -> new UsernameNotFoundException("帳號不存在"));
             return User.withUsername(staff.username()).password(staff.passwordHash())
-                .roles(staff.level()).disabled(!staff.active()).build();
+                    .roles(staff.level()).disabled(!staff.active()).build();
         };
     }
+
     // 登入 API 用：以員工資料表 + BCrypt 驗證帳密（只在登入時比對一次，之後靠 token）
-    @Bean AuthenticationManager authenticationManager(UserDetailsService users, PasswordEncoder encoder) {
+    @Bean
+    AuthenticationManager authenticationManager(UserDetailsService users, PasswordEncoder encoder) {
         var provider = new DaoAuthenticationProvider(users);
         provider.setPasswordEncoder(encoder);
         return new ProviderManager(provider);
     }
+
     // 允許這兩個本機 Angular 網址跨來源呼叫；CORS 不等於登入授權。
-    @Bean CorsConfigurationSource cors() {
+    @Bean
+    CorsConfigurationSource cors() {
         var cors = new CorsConfiguration();
         cors.setAllowedOrigins(List.of("http://localhost:4200", "http://127.0.0.1:4200"));
-        cors.setAllowedMethods(List.of("GET","POST","PUT","DELETE","OPTIONS"));
-        cors.setAllowedHeaders(List.of("Authorization","Content-Type"));
+        cors.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        cors.setAllowedHeaders(List.of("Authorization", "Content-Type"));
         cors.setAllowCredentials(false);
-        var source = new UrlBasedCorsConfigurationSource(); source.registerCorsConfiguration("/api/**",cors);
+        var source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/api/**", cors);
         return source;
     }
+
     // STATELESS：後端不靠登入 Session；文件、health、登入與預檢免登入，其餘 /api 都需驗證。
     // 這版 API 由前端明確帶 Authorization，不使用 Cookie Session，CSRF 設定依此設計。
-    @Bean SecurityFilterChain security(HttpSecurity http, JwtService jwt, UserDetailsService users) throws Exception {
+    @Bean
+    SecurityFilterChain security(HttpSecurity http, JwtService jwt, UserDetailsService users) throws Exception {
         return http.csrf(c -> c.disable()).cors(Customizer.withDefaults())
-            .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .addFilterBefore(new JwtAuthenticationFilter(jwt, users), UsernamePasswordAuthenticationFilter.class)
-            .exceptionHandling(e -> e.authenticationEntryPoint((request,response,ex) -> {
-                // 沒帶 token、token 過期或竄改、帳號已停用
-                response.setStatus(401); response.setContentType("application/json;charset=UTF-8");
-                response.getWriter().write("{\"success\":false,\"message\":\"請重新登入\"}");
-            }).accessDeniedHandler((request,response,ex) -> {
-                response.setStatus(403); response.setContentType("application/json;charset=UTF-8");
-                response.getWriter().write("{\"success\":false,\"message\":\"沒有操作權限\"}");
-            }))
-            .authorizeHttpRequests(a -> a
-                .requestMatchers(HttpMethod.OPTIONS,"/**").permitAll()
-                .requestMatchers("/api/health").permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
-                .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**", "/v3/api-docs.yaml").permitAll()
-                // 刪除會員：只限店長、總部（MemberService 也會再檢查一次）
-                .requestMatchers(HttpMethod.DELETE, "/api/members/*").hasAnyRole("MANAGER", "HQ")
-                .requestMatchers(HttpMethod.POST, "/api/wastages/order-item/*").hasRole("POS")
-                // 櫃台作業只限門市 POS 共用帳號：日結、訂單、會員、外送路線、上下班打卡、目前在班。
-                // 嚴格比對 POS，店長、總部用個人帳號也不行，要到 POS 機上操作。
-                .requestMatchers("/api/daily-shifts", "/api/daily-shifts/**",
-                    "/api/orders", "/api/orders/**",
-                    "/api/members", "/api/members/**", "/api/route", "/api/geo/reverse",
-                    "/api/shift-staff/clock-in", "/api/shift-staff/clock-out", "/api/shift-staff/on-duty").hasRole("POS")
-                // 今日打卡狀態：所有登入帳號都能看（POS 機打卡要知道開班沒、誰在班；一般員工只看得到在班的人和自己）
-                .requestMatchers(HttpMethod.GET, "/api/shift-staff/today").authenticated()
-                // 盤點類型的新增、修改：只限店長、總部（查看在下面，個人帳號都可以）
-                .requestMatchers(HttpMethod.POST, "/api/inventory-counts/types").hasAnyRole("MANAGER", "HQ")
-                .requestMatchers(HttpMethod.PUT, "/api/inventory-counts/types/*").hasAnyRole("MANAGER", "HQ")
-                // 原料報廢回報：原料報廢登記、每日與每月損耗紀錄只限店員、店長的個人帳號（報廢記在員工本人名下；POS 共用帳號不行）
-                .requestMatchers(HttpMethod.POST, "/api/wastages/raw-material").hasAnyRole("STAFF", "MANAGER")
-                .requestMatchers(HttpMethod.GET, "/api/wastages/daily-summary").hasAnyRole("STAFF", "MANAGER")
-                .requestMatchers(HttpMethod.HEAD, "/api/wastages/daily-summary").hasAnyRole("STAFF", "MANAGER")
-                .requestMatchers(HttpMethod.GET, "/api/wastages/monthly-summary").hasAnyRole("STAFF", "MANAGER", "HQ")
-                // 停售管理：查看與設定都只限門市 POS、店長；原料、半成品的分類（029）只限店長
-                .requestMatchers(HttpMethod.PUT, "/api/sale-status/categories").hasRole("MANAGER")
-                .requestMatchers("/api/sale-status", "/api/sale-status/**").hasAnyRole("POS", "MANAGER")
-                // 櫃台與個人帳號可查看配方，店長與總部可編輯。
-                .requestMatchers(HttpMethod.PUT, "/api/recipes/{productId:[0-9]+}").hasAnyRole("MANAGER", "HQ")
-                .requestMatchers(HttpMethod.GET, "/api/recipes", "/api/recipes/categories", "/api/recipes/{productId:[0-9]+}")
-                    .hasAnyRole("POS", "TRAINEE", "STAFF", "MANAGER", "HQ")
-                .requestMatchers(HttpMethod.HEAD, "/api/recipes", "/api/recipes/categories", "/api/recipes/{productId:[0-9]+}")
-                    .hasAnyRole("POS", "TRAINEE", "STAFF", "MANAGER", "HQ")
-                .requestMatchers("/api/recipes", "/api/recipes/**").denyAll()
-                // 打卡紀錄與盤點保留個人帳號權限。
-                .requestMatchers("/api/shift-staff", "/api/shift-staff/**",
-                    "/api/inventory-counts", "/api/inventory-counts/**")
-                    .hasAnyRole("TRAINEE", "STAFF", "MANAGER", "HQ")
-                .requestMatchers("/api/**").authenticated()
-                .anyRequest().denyAll()).build();
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .addFilterBefore(new JwtAuthenticationFilter(jwt, users), UsernamePasswordAuthenticationFilter.class)
+                .exceptionHandling(e -> e.authenticationEntryPoint((request, response, ex) -> {
+                    // 沒帶 token、token 過期或竄改、帳號已停用
+                    response.setStatus(401);
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.getWriter().write("{\"success\":false,\"message\":\"請重新登入\"}");
+                }).accessDeniedHandler((request, response, ex) -> {
+                    response.setStatus(403);
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.getWriter().write("{\"success\":false,\"message\":\"沒有操作權限\"}");
+                }))
+                .authorizeHttpRequests(a -> a
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers("/api/health").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
+                        .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**",
+                                "/v3/api-docs.yaml")
+                        .permitAll()
+                        // 刪除會員：只限店長、總部（MemberService 也會再檢查一次）
+                        .requestMatchers(HttpMethod.DELETE, "/api/members/*").hasAnyRole("MANAGER", "HQ")
+                        .requestMatchers(HttpMethod.POST, "/api/wastages/order-item/*").hasRole("POS")
+                        // 櫃台作業只限門市 POS 共用帳號：日結、訂單、會員、外送路線、上下班打卡、目前在班。
+                        // 嚴格比對 POS，店長、總部用個人帳號也不行，要到 POS 機上操作。
+                        .requestMatchers("/api/daily-shifts", "/api/daily-shifts/**",
+                                "/api/orders", "/api/orders/**",
+                                "/api/members", "/api/members/**", "/api/route", "/api/geo/reverse",
+                                "/api/shift-staff/clock-in", "/api/shift-staff/clock-out", "/api/shift-staff/on-duty")
+                        .hasRole("POS")
+                        // 今日打卡狀態：所有登入帳號都能看（POS 機打卡要知道開班沒、誰在班；一般員工只看得到在班的人和自己）
+                        .requestMatchers(HttpMethod.GET, "/api/shift-staff/today").authenticated()
+                        // 盤點類型的新增、修改：只限店長、總部（查看在下面，個人帳號都可以）
+                        .requestMatchers(HttpMethod.POST, "/api/inventory-counts/types").hasAnyRole("MANAGER", "HQ")
+                        .requestMatchers(HttpMethod.PUT, "/api/inventory-counts/types/*").hasAnyRole("MANAGER", "HQ")
+                        // 原料報廢回報：原料報廢登記、每日與每月損耗紀錄只限店員、店長的個人帳號（報廢記在員工本人名下；POS 共用帳號不行）
+                        .requestMatchers(HttpMethod.POST, "/api/wastages/raw-material").hasAnyRole("STAFF", "MANAGER")
+                        .requestMatchers(HttpMethod.GET, "/api/wastages/daily-summary").hasAnyRole("STAFF", "MANAGER")
+                        .requestMatchers(HttpMethod.HEAD, "/api/wastages/daily-summary").hasAnyRole("STAFF", "MANAGER")
+                        .requestMatchers(HttpMethod.GET, "/api/wastages/monthly-summary")
+                        .hasAnyRole("STAFF", "MANAGER", "HQ")
+                        // 停售管理：查看與設定都只限門市 POS、店長；原料、半成品的分類（029）只限店長
+                        .requestMatchers(HttpMethod.PUT, "/api/sale-status/categories").hasRole("MANAGER")
+                        .requestMatchers("/api/sale-status", "/api/sale-status/**").hasAnyRole("POS", "MANAGER")
+                        // 櫃台與個人帳號可查看配方，店長與總部可編輯，總部可查詢全部半成品與原料以增減配方材料。
+                        .requestMatchers(HttpMethod.GET, "/api/recipes/materials").hasRole("HQ")
+                        .requestMatchers(HttpMethod.PUT, "/api/recipes/{productId:[0-9]+}").hasAnyRole("MANAGER", "HQ")
+                        .requestMatchers(HttpMethod.GET, "/api/recipes", "/api/recipes/categories",
+                                "/api/recipes/{productId:[0-9]+}")
+                        .hasAnyRole("POS", "TRAINEE", "STAFF", "MANAGER", "HQ")
+                        .requestMatchers(HttpMethod.HEAD, "/api/recipes", "/api/recipes/categories",
+                                "/api/recipes/{productId:[0-9]+}")
+                        .hasAnyRole("POS", "TRAINEE", "STAFF", "MANAGER", "HQ")
+                        .requestMatchers("/api/recipes", "/api/recipes/**").denyAll()
+                        // 打卡紀錄與盤點保留個人帳號權限。
+                        .requestMatchers("/api/shift-staff", "/api/shift-staff/**",
+                                "/api/inventory-counts", "/api/inventory-counts/**")
+                        .hasAnyRole("TRAINEE", "STAFF", "MANAGER", "HQ")
+                        // 物料消耗統計：只限店長與總部查看
+                        .requestMatchers("/api/inventory-consumption", "/api/inventory-consumption/**")
+                        .hasAnyRole("MANAGER", "HQ")
+                        // 總部營運報表（日／月營收、熱銷排行、訂單紀錄）：只限 HQ 總部帳號查看
+                        .requestMatchers("/api/hq-reports", "/api/hq-reports/**")
+                        .hasRole("HQ")
+                        .requestMatchers("/api/**").authenticated()
+                        .anyRequest().denyAll())
+                .build();
     }
 }

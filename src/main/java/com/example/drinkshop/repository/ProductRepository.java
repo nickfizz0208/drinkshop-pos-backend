@@ -85,4 +85,50 @@ public class ProductRepository {
         return jdbc.update("UPDATE product_recipe SET portions=? WHERE product_id=? AND " + column + "=?",
             portions, productId, materialId);
     }
+
+    /** 列出資料庫中所有半成品與原料，供總部編輯配方時挑選新增。 */
+    public List<Map<String, Object>> materialOptions() {
+        return jdbc.queryForList("""
+            SELECT 'PREP' AS kind, x.prep_id AS id, x.name,
+                   (SELECT GROUP_CONCAT(pi.name ORDER BY pi.inventory_id SEPARATOR '、')
+                      FROM prep_item_ingredient g JOIN inventory pi ON pi.inventory_id = g.inventory_id
+                     WHERE g.prep_id = x.prep_id) AS made_from
+            FROM prep_item x
+            UNION ALL
+            SELECT 'INVENTORY' AS kind, i.inventory_id AS id, i.name, NULL AS made_from
+            FROM inventory i
+            ORDER BY kind DESC, id
+            """);
+    }
+
+    public boolean materialExists(long materialId, boolean prep) {
+        String sql = prep
+            ? "SELECT COUNT(*) FROM prep_item WHERE prep_id=?"
+            : "SELECT COUNT(*) FROM inventory WHERE inventory_id=?";
+        Integer count = jdbc.queryForObject(sql, Integer.class, materialId);
+        return count != null && count > 0;
+    }
+
+    public int nextSortOrder(long productId) {
+        Integer next = jdbc.queryForObject(
+            "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM product_recipe WHERE product_id=?",
+            Integer.class, productId);
+        return next != null ? next : 1;
+    }
+
+    public void insertMaterial(long productId, long materialId, boolean prep, BigDecimal portions, int sortOrder) {
+        if (prep) {
+            jdbc.update("INSERT INTO product_recipe(product_id, inventory_id, prep_id, portions, sort_order) VALUES (?, NULL, ?, ?, ?)",
+                productId, materialId, portions, sortOrder);
+        } else {
+            jdbc.update("INSERT INTO product_recipe(product_id, inventory_id, prep_id, portions, sort_order) VALUES (?, ?, NULL, ?, ?)",
+                productId, materialId, portions, sortOrder);
+        }
+    }
+
+    public int deleteMaterial(long productId, long materialId, boolean prep) {
+        String column = prep ? "prep_id" : "inventory_id";
+        return jdbc.update("DELETE FROM product_recipe WHERE product_id=? AND " + column + "=?",
+            productId, materialId);
+    }
 }
