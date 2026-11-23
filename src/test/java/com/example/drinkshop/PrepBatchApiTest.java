@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-// 備料（050）：誰煮了什麼半成品、幾份。測試資料 data-h2.sql 有半成品 1 茶凍。
+// 備料（050、051）：誰做了什麼半成品、幾份，半成品報廢與每日總覽。測試資料 data-h2.sql 有半成品 1 茶凍。
 @SpringBootTest(properties={
     "spring.config.import=", "pos.demo.enabled=false",
     "spring.datasource.url=jdbc:h2:mem:prep_batch;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1",
@@ -89,6 +89,37 @@ class PrepBatchApiTest {
             .andExpect(jsonPath("$[0].name").value("茶凍"));
         // 只做紀錄：不改原料帳面
         assertEquals(0,bookBefore.compareTo(jdbc.queryForObject("SELECT SUM(book_qty) FROM inventory",java.math.BigDecimal.class)));
+    }
+
+    @Test
+    void wasteIsRecordedAndSummaryShowsMadeUsedWasted() throws Exception {
+        create("p_pos","{\"prepId\":1,\"qty\":4,\"madeBy\":31}").andExpect(status().isCreated());
+        create("p_staff","{\"prepId\":1,\"qty\":1}").andExpect(status().isCreated());
+        // 051：半成品報廢，原因必填；POS 要選處理的人
+        mvc.perform(post("/api/prep-batches/waste").with(login("p_pos",PASSWORD)).contentType("application/json")
+                .content("{\"prepId\":1,\"qty\":1.5}"))
+            .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/prep-batches/waste").with(login("p_pos",PASSWORD)).contentType("application/json")
+                .content("{\"prepId\":1,\"qty\":1.5,\"note\":\"放太久\"}"))
+            .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/prep-batches/waste").with(login("p_pos",PASSWORD)).contentType("application/json")
+                .content("{\"prepId\":1,\"qty\":1.5,\"wastedBy\":31,\"note\":\" 放太久 \"}"))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.wastedByName").value("店員小華"))
+            .andExpect(jsonPath("$.recordedByName").value("門市 POS"))
+            .andExpect(jsonPath("$.note").value("放太久"));
+        mvc.perform(get("/api/prep-batches").with(login("p_manager",PASSWORD)))
+            .andExpect(jsonPath("$.rows.length()").value(2))
+            .andExpect(jsonPath("$.wastes.length()").value(1))
+            .andExpect(jsonPath("$.summary.length()").value(1))
+            .andExpect(jsonPath("$.summary[0].name").value("茶凍"))
+            .andExpect(jsonPath("$.summary[0].made").value(5.0))
+            .andExpect(jsonPath("$.summary[0].used").value(0.0))
+            .andExpect(jsonPath("$.summary[0].wasted").value(1.5))
+            .andExpect(jsonPath("$.summary[0].remaining").value(3.5));
+        mvc.perform(post("/api/prep-batches/waste").with(login("p_hq",PASSWORD)).contentType("application/json")
+                .content("{\"prepId\":1,\"qty\":1,\"note\":\"x\"}"))
+            .andExpect(status().isForbidden());
     }
 
     @Test

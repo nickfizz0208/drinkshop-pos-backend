@@ -201,6 +201,7 @@ MySQL DDL 不支援整批回滾；若遇到非預期的部分升級狀態，腳�
 ## 備料（050）
 
 - `GET /api/prep-batches/preps`：可以登記的半成品（`prepId`、`name`、`category`）。
-- `GET /api/prep-batches?date=YYYY-MM-DD`：某一天的備料紀錄，不給日期＝今天；回傳 `businessDate`、`rows[]`（新的在前：`batchId`、`prepName`、`qty`、`madeByName`、`recordedByName`、`madeAt`、`note`…）。
+- `GET /api/prep-batches?date=YYYY-MM-DD`：某一天的備料，不給日期＝今天；回傳 `businessDate`、`rows[]`（備料，新的在前）、`wastes[]`（半成品報廢，051）、`summary[]`（各半成品 `made` 做了、`used` 訂單用了、`wasted` 倒掉、`remaining` 剩下，只是參考）。
+- `POST /api/prep-batches/waste`：`{ "prepId": 1, "qty": 1, "wastedBy": 31, "note": "放太久" }`，`wastedBy` 規則和 `madeBy` 一樣，`note`（原因）必填。
 - `POST /api/prep-batches`：`{ "prepId": 1, "qty": 4, "madeBy": 31, "note": "茶葉換新批" }`。POS 共用帳號必填 `madeBy`（在職員工）；個人帳號不用給，一律記成自己。`qty` 大於 0、最多兩位小數，`note` 最多 200 字。
 - 權限：門市 POS、TRAINEE、STAFF、MANAGER；HQ 不行。只做紀錄，不扣庫存。

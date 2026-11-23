@@ -1,22 +1,17 @@
 package com.example.drinkshop.controller;
 
-import com.example.drinkshop.exception.ApiException;
-import jakarta.validation.Valid;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
-import java.security.Principal;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 物料月消耗統計與店長確認扣庫 API：
+ * 物料月消耗統計 API（只統計、不扣帳面庫存；帳面以原料盤點為準）：
  * 原料（inventory）的消耗只在兩個地方記：賣出時飲品／加料直接用的原料，以及登記備料（050）時半成品材料裡的原料
  * （份數 × prep_item_ingredient.qty；材料是別的半成品不算，它的原料在做它時已經記過）。
  * 半成品（prep_item，編號 100000＋prep_id、單位「份」）的消耗由訂單計算，只看份數、不再換算成原料，和原料分開列。
  * 另外列出門市原料報廢紀錄（raw_material_wastage）。
- * 支援店長登入確認後執行庫存扣除。
  */
 @RestController
 @RequestMapping("/api/inventory-consumption")
@@ -225,41 +220,6 @@ public class ConsumptionController {
             "wastage_records", wastageRecords,
             "wastage_materials", wastageMaterials,
             "wastage_details", wastageDetails
-        );
-    }
-
-    public record DeductItem(Long inventoryId, BigDecimal deductQty) {}
-    public record ConfirmDeductRequest(List<DeductItem> items, String note) {}
-
-    /**
-     * 店長確認扣除原料庫存端點：
-     * POST /api/inventory-consumption/confirm-deduct
-     * 店長檢視消耗與報廢數據後，確認扣減 inventory 帳面庫存 (book_qty)。
-     */
-    @PostMapping("/confirm-deduct")
-    public Map<String, Object> confirmDeduct(
-            @Valid @RequestBody ConfirmDeductRequest request,
-            Principal principal) {
-        if (request.items() == null || request.items().isEmpty()) {
-            throw ApiException.bad("請至少選擇一項欲扣除之原物料");
-        }
-        int count = 0;
-        for (DeductItem item : request.items()) {
-            if (item.inventoryId() == null || item.deductQty() == null || item.deductQty().compareTo(BigDecimal.ZERO) <= 0) {
-                continue;
-            }
-            int updated = jdbc.update(
-                "UPDATE inventory SET book_qty = GREATEST(0, book_qty - ?) WHERE inventory_id = ?",
-                item.deductQty(), item.inventoryId()
-            );
-            if (updated > 0) {
-                count++;
-            }
-        }
-        return Map.of(
-            "success", true,
-            "message", "店長確認扣除完成，共更新 " + count + " 項原料庫存",
-            "deductedCount", count
         );
     }
 }

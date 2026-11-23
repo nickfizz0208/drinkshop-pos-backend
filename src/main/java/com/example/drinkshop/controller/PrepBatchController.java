@@ -15,7 +15,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * 備料（050）：登記誰煮了什麼半成品、幾份。門市 POS 共用帳號（要選煮的人）與店員、店長等個人帳號（記成自己）都可以用；
+ * 備料（050、051）：登記誰做了什麼半成品、幾份，以及半成品報廢。門市 POS 共用帳號（要選煮的人）與店員、店長等個人帳號（記成自己）都可以用；
  * 總部帳號不用（權限見 SecurityConfig）。
  */
 @RestController
@@ -29,7 +29,7 @@ public class PrepBatchController {
     @GetMapping("/preps")
     List<PrepOption> preps() { return batches.preps(); }
 
-    /** GET /api/prep-batches?date=YYYY-MM-DD：某一天的備料紀錄，不給＝今天。 */
+    /** GET /api/prep-batches?date=YYYY-MM-DD：某一天的備料、報廢紀錄與各半成品總覽，不給＝今天。 */
     @GetMapping
     Day day(@RequestParam(name = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return batches.day(date);
@@ -39,8 +39,18 @@ public class PrepBatchController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     Row create(@Valid @RequestBody Create request, Principal principal) {
-        Staff current = pos.staff(principal.getName()).filter(Staff::active)
+        return batches.create(request, current(principal));
+    }
+
+    /** POST /api/prep-batches/waste：登記一筆半成品報廢（051）。 */
+    @PostMapping("/waste")
+    @ResponseStatus(HttpStatus.CREATED)
+    WasteRow createWaste(@Valid @RequestBody WasteCreate request, Principal principal) {
+        return batches.createWaste(request, current(principal));
+    }
+
+    private Staff current(Principal principal) {
+        return pos.staff(principal.getName()).filter(Staff::active)
             .orElseThrow(() -> ApiException.unauthorized("員工帳號已停用"));
-        return batches.create(request, current);
     }
 }
