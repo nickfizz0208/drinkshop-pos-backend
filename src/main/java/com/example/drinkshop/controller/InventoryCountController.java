@@ -70,14 +70,28 @@ public class InventoryCountController {
         return counts.items();
     }
 
-    /** GET /api/inventory-counts/prep-items：半成品盤點清單（計算目前數量、今日訂單消耗、今日報廢、理論量）。 */
+    /** GET /api/inventory-counts/prep-items：半成品備料盤點清單（含今日多次製作時間紀錄、訂單消耗、剩餘半成品、半成品報廢紀錄）。 */
     @GetMapping("/prep-items")
     List<PrepCountItem> prepItems(
             @RequestParam(name = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return counts.prepItems(date);
     }
 
-    /** POST /api/inventory-counts/prep-submit：送出半成品盤點（員工送出待審核，店長送出確認並扣庫）。 */
+    /** POST /api/inventory-counts/prep-production：記錄今日新增半成品製作量（可同品項一日多次新增，並附時間紀錄與底層原料換算）。 */
+    @PostMapping("/prep-production")
+    @ResponseStatus(HttpStatus.CREATED)
+    java.util.Map<String, Object> recordPrepProduction(@Valid @RequestBody PrepProductionSubmit request, Principal principal) {
+        return counts.recordPrepProduction(request, currentStaffId(principal));
+    }
+
+    /** POST /api/inventory-counts/prep-wastage：將剩餘半成品記錄為半成品報廢量（與生原料出問題的原料報廢回報區隔）。 */
+    @PostMapping("/prep-wastage")
+    @ResponseStatus(HttpStatus.CREATED)
+    java.util.Map<String, Object> recordPrepWastage(@Valid @RequestBody PrepWastageSubmit request, Principal principal) {
+        return counts.recordPrepWastage(request, currentStaffId(principal));
+    }
+
+    /** POST /api/inventory-counts/prep-submit：送出半成品盤點（向下相容）。 */
     @PostMapping("/prep-submit")
     @ResponseStatus(HttpStatus.CREATED)
     java.util.Map<String, Object> submitPrepCount(@Valid @RequestBody PrepCountSubmit request, Principal principal) {

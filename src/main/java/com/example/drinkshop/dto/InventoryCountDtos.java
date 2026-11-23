@@ -74,30 +74,89 @@ public final class InventoryCountDtos {
         String unit
     ) {}
 
+    /** 半成品單次新增製作量（煮茶／備料）的時間紀錄。 */
+    public record PrepProductionLogDto(
+        long logId,
+        long prepId,
+        String prepName,
+        BigDecimal producedQty,
+        String unit,
+        List<PrepIngredientDto> usedIngredients,
+        long staffId,
+        String staffName,
+        LocalDateTime createdAt,
+        String note
+    ) {}
+
+    /** 剩餘半成品轉報廢的時間紀錄（與生原料出問題的 raw_material_wastage 分開）。 */
+    public record PrepWastageLogDto(
+        long logId,
+        long prepId,
+        String prepName,
+        BigDecimal wastedQty,
+        String unit,
+        long staffId,
+        String staffName,
+        LocalDateTime createdAt,
+        String note
+    ) {}
+
     /**
-     * 半成品盤點項目：
-     * 理論的量 = 目前數量（今日備量）- 今日訂單消耗 - 今日報廢
+     * 半成品備料盤點項目：
+     * 剩餘半成品 (theoreticalQty) = 今日累計製作量 (currentQty) - 今日訂單消耗 (orderConsumed) - 今日半成品報廢 (wastedQty)
      */
     public record PrepCountItem(
         long prepId,
         String name,
         String category,
         String unit,
-        BigDecimal currentQty,      // 目前物料數量 / 今日備量
+        BigDecimal currentQty,      // 今日累計製作量
         BigDecimal orderConsumed,   // 今日訂單消耗
-        BigDecimal wastedQty,       // 今日報廢
-        BigDecimal theoreticalQty,  // 理論的量 = 目前數量 - 訂單消耗 - 報廢
-        List<PrepIngredientDto> ingredients
+        BigDecimal wastedQty,       // 今日已處理半成品報廢量
+        BigDecimal theoreticalQty,  // 目前剩餘半成品量 = 今日累計製作量 - 今日訂單消耗 - 今日半成品報廢量
+        List<PrepIngredientDto> ingredients,
+        List<PrepProductionLogDto> productionLogs,
+        List<PrepWastageLogDto> wastageLogs
     ) {}
 
-    /** 提交半成品盤點的一項實點資料。 */
+    /** 新增單項半成品今日製作量。 */
+    public record PrepProductionLineSubmit(
+        @NotNull @Positive Long prepId,
+        @NotNull(message = "請輸入今天的製作量")
+        @DecimalMin(value = "0.01", message = "製作量必須大於 0")
+        BigDecimal producedQty
+    ) {}
+
+    /** 送出今日半成品新增製作量（支援單項或多項、同品項一日多次新增）。 */
+    public record PrepProductionSubmit(
+        @NotEmpty(message = "請至少輸入一項半成品的今日製作量")
+        List<@Valid @NotNull PrepProductionLineSubmit> lines,
+        @Size(max = 255) String note
+    ) {}
+
+    /** 新增單項剩餘半成品轉報廢量。 */
+    public record PrepWastageLineSubmit(
+        @NotNull @Positive Long prepId,
+        @NotNull(message = "請輸入半成品報廢量")
+        @DecimalMin(value = "0.01", message = "報廢量必須大於 0")
+        BigDecimal wastedQty
+    ) {}
+
+    /** 送出剩餘半成品報廢處理（與生原料報廢回報區隔）。 */
+    public record PrepWastageSubmit(
+        @NotEmpty(message = "請至少輸入一項要報廢的半成品數量")
+        List<@Valid @NotNull PrepWastageLineSubmit> lines,
+        @Size(max = 255) String note
+    ) {}
+
+    /** 提交半成品盤點的一項實點資料（向下相容）。 */
     public record PrepCountLineSubmit(
         @NotNull @Positive Long prepId,
         @NotNull @DecimalMin("0") BigDecimal currentQty,
         @NotNull @DecimalMin("0") BigDecimal countedQty
     ) {}
 
-    /** 送出半成品盤點。 */
+    /** 送出半成品盤點（向下相容）。 */
     public record PrepCountSubmit(
         @NotNull UUID requestId,
         @NotEmpty List<@Valid @NotNull PrepCountLineSubmit> lines,
