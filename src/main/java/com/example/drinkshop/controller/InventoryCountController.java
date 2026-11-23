@@ -25,7 +25,8 @@ public class InventoryCountController {
     private final PosRepository posRepository;
 
     public InventoryCountController(InventoryCountService counts, PosRepository posRepository) {
-        this.counts = counts; this.posRepository = posRepository;
+        this.counts = counts;
+        this.posRepository = posRepository;
     }
 
     /** POST /api/inventory-counts：送出一次盤點（多項原料），經手人是目前登入的員工。 */
@@ -33,6 +34,12 @@ public class InventoryCountController {
     @ResponseStatus(HttpStatus.CREATED)
     List<Row> submit(@Valid @RequestBody Submit request, Principal principal) {
         return counts.submit(request, currentStaffId(principal));
+    }
+
+    /** POST /api/inventory-counts/{countId}/approve：店長審核確認盤點紀錄，並正式更新原料帳面庫存。 */
+    @PostMapping("/{countId}/approve")
+    public java.util.Map<String, Object> approve(@PathVariable("countId") long countId, Principal principal) {
+        return counts.approveCount(countId, currentStaffId(principal));
     }
 
     /** GET /api/inventory-counts/types?includeInactive=true：盤點類型（不填只列啟用中的）。 */
@@ -48,17 +55,39 @@ public class InventoryCountController {
         return counts.createType(request, currentStaffId(principal));
     }
 
-    /** PUT /api/inventory-counts/types/{typeId}：修改盤點類型（active = false 即停用；只限店長、總部）。 */
+    /**
+     * PUT /api/inventory-counts/types/{typeId}：修改盤點類型（active = false 即停用；只限店長、總部）。
+     */
     @PutMapping("/types/{typeId}")
-    CountType updateType(@PathVariable("typeId") long typeId, @Valid @RequestBody SaveType request, Principal principal) {
+    CountType updateType(@PathVariable("typeId") long typeId, @Valid @RequestBody SaveType request,
+            Principal principal) {
         return counts.updateType(typeId, request, currentStaffId(principal));
     }
 
     /** GET /api/inventory-counts/items：盤點用的原料清單（含帳面數量、是否允許小數）。 */
     @GetMapping("/items")
-    List<Item> items() { return counts.items(); }
+    List<Item> items() {
+        return counts.items();
+    }
 
-    /** GET /api/inventory-counts?from=YYYY-MM-DD&to=YYYY-MM-DD：盤點紀錄，不填為最近 7 天，最多 31 天。 */
+    /** GET /api/inventory-counts/prep-items：半成品盤點清單（計算目前數量、今日訂單消耗、今日報廢、理論量）。 */
+    @GetMapping("/prep-items")
+    List<PrepCountItem> prepItems(
+            @RequestParam(name = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return counts.prepItems(date);
+    }
+
+    /** POST /api/inventory-counts/prep-submit：送出半成品盤點（員工送出待審核，店長送出確認並扣庫）。 */
+    @PostMapping("/prep-submit")
+    @ResponseStatus(HttpStatus.CREATED)
+    java.util.Map<String, Object> submitPrepCount(@Valid @RequestBody PrepCountSubmit request, Principal principal) {
+        return counts.submitPrepCount(request, currentStaffId(principal));
+    }
+
+    /**
+     * GET /api/inventory-counts?from=YYYY-MM-DD&to=YYYY-MM-DD：盤點紀錄，不填為最近 7 天，最多 31
+     * 天。
+     */
     @GetMapping
     History history(
             @RequestParam(name = "from", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,

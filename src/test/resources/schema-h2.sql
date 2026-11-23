@@ -441,3 +441,19 @@ CREATE TABLE inventory_count_line (
 );
 -- 019：用大單位＋小單位顯示
 ALTER TABLE inventory ADD COLUMN display_by_pack BOOLEAN NOT NULL DEFAULT FALSE;
+-- 050：備料紀錄（只記錄，不扣庫存）
+CREATE TABLE prep_batch (
+  batch_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  business_date DATE NOT NULL,
+  prep_id BIGINT NOT NULL,
+  qty DECIMAL(10,2) NOT NULL,
+  made_by BIGINT NOT NULL,
+  recorded_by BIGINT NOT NULL,
+  made_at DATETIME(6) NOT NULL,
+  note VARCHAR(200) NULL,
+  CONSTRAINT fk_prep_batch_prep FOREIGN KEY (prep_id) REFERENCES prep_item(prep_id),
+  CONSTRAINT fk_prep_batch_made_by FOREIGN KEY (made_by) REFERENCES staff_account(staff_id),
+  CONSTRAINT fk_prep_batch_recorded_by FOREIGN KEY (recorded_by) REFERENCES staff_account(staff_id),
+  CONSTRAINT chk_prep_batch_qty CHECK (qty > 0)
+);
+CREATE INDEX idx_prep_batch_date ON prep_batch (business_date, made_at);

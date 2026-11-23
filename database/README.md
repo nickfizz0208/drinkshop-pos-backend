@@ -332,3 +332,7 @@ UPDATE product SET color_tone = NULL WHERE name = '紅茶拿鐵';   -- 改回自
 - 這杯加料收的錢＝`price_at_order ×（qty − free_qty）`，已算在 `order_item.unit_price` 裡。
 
 可重複執行，**這版後端需要 046**，需要先執行 039。
+
+## 備料紀錄（050）
+
+`050_prep_batch.sql`：新增 `prep_batch`，記錄誰（`made_by`）在什麼時候煮了哪一種半成品（`prep_id`）、幾份（`qty`），可加備註；`recorded_by` 是登記的帳號（POS 機登記時是 POS 帳號）。不扣原料帳面、沒有半成品庫存；物料消耗報表會把「份數 × 半成品材料裡的原料用量」算成原料消耗（材料是別的半成品不算）。點餐系統的「備料」頁：門市 POS 共用帳號登記時選煮的人，店員、店長用自己的帳號登記時記成自己，總部帳號不用。API 是 `/api/prep-batches`（見 docs/POS_API.md）。可重複執行，**這版後端需要 050**，需要先執行 021。
