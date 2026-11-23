@@ -35,9 +35,58 @@ public class InventoryCountService {
     private final Clock clock;
     private final boolean enabled;
 
+    // 雲端或本機若無法執行 DDL 時的記憶體備援儲存，確保半成品多次製作紀錄與半成品報廢紀錄穩定運作
+    private volatile Boolean prepTablesReady = null;
+    private final java.util.concurrent.atomic.AtomicLong fallbackLogSeq = new java.util.concurrent.atomic.AtomicLong(1);
+    private final List<FallbackProdLog> fallbackProdLogs = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private final List<FallbackWastageLog> fallbackWastageLogs = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    private record FallbackProdLog(long logId, LocalDate businessDate, long prepId, BigDecimal producedQty,
+                                   long staffId, String staffName, LocalDateTime createdAt, String note) {}
+    private record FallbackWastageLog(long logId, LocalDate businessDate, long prepId, BigDecimal wastedQty,
+                                      long staffId, String staffName, LocalDateTime createdAt, String note) {}
+
     public InventoryCountService(PosRepository repo, InventoryRepository inventories, Clock clock,
                                  @Value("${pos.inventory-count.enabled:false}") boolean enabled) {
         this.repo = repo; this.inventories = inventories; this.clock = clock; this.enabled = enabled;
+    }
+
+    private boolean ensurePrepLogTables() {
+        Boolean ready = this.prepTablesReady;
+        if (ready != null) return ready;
+        synchronized (this) {
+            if (this.prepTablesReady != null) return this.prepTablesReady;
+            try {
+                repo.update("""
+                    CREATE TABLE IF NOT EXISTS prep_production_log (
+                        log_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                        business_date DATE NOT NULL,
+                        prep_id BIGINT NOT NULL,
+                        produced_qty DECIMAL(10,2) NOT NULL,
+                        staff_id BIGINT NOT NULL,
+                        created_at DATETIME(6) NOT NULL,
+                        note VARCHAR(255) NULL,
+                        INDEX idx_prep_prod_date (business_date, prep_id)
+                    ) ENGINE=InnoDB
+                    """);
+                repo.update("""
+                    CREATE TABLE IF NOT EXISTS prep_wastage_log (
+                        log_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                        business_date DATE NOT NULL,
+                        prep_id BIGINT NOT NULL,
+                        wasted_qty DECIMAL(10,2) NOT NULL,
+                        staff_id BIGINT NOT NULL,
+                        created_at DATETIME(6) NOT NULL,
+                        note VARCHAR(255) NULL,
+                        INDEX idx_prep_waste_date (business_date, prep_id)
+                    ) ENGINE=InnoDB
+                    """);
+                this.prepTablesReady = true;
+            } catch (Exception ex) {
+                this.prepTablesReady = false;
+            }
+            return this.prepTablesReady;
+        }
     }
 
     public List<Row> submit(Submit request, long staffId) {
@@ -229,12 +278,16 @@ public class InventoryCountService {
     }
 
     /**
-     * 取得半成品盤點清單（計算各半成品的今日訂單消耗、今日報廢、目前數量與理論的量）。
-     * 公式：理論的量 = 目前數量（今日備量）- 今日訂單消耗 - 今日報廢
+     * 取得半成品備料盤點清單：
+     * 1. 今日各次製作時間紀錄（可同品項一日新增 2、3 次）與今日累計製作量
+     * 2. 各半成品對應之底層原料配方（1 份半成品應使用多少底層原料）
+     * 3. 今日訂單消耗量（product_recipe + topping）
+     * 4. 今日半成品報廢量與紀錄（與生原料出問題的 raw_material_wastage 分開）
+     * 5. 目前剩餘半成品量 = MAX(0, 今日累計製作量 - 今日訂單消耗量 - 今日半成品報廢量)
      */
-    @Transactional(readOnly = true)
     public List<PrepCountItem> prepItems(LocalDate date) {
         LocalDate targetDate = date != null ? date : LocalDate.now(clock);
+        boolean useDbTables = ensurePrepLogTables();
 
         // 1. 今日訂單半成品消耗（product_recipe + topping）
         Map<Long, BigDecimal> orderConsumedMap = new HashMap<>();
@@ -266,48 +319,188 @@ public class InventoryCountService {
             orderConsumedMap.merge(pId, decimal(r, "qty"), BigDecimal::add);
         }
 
-        // 2. 取得所有半成品
-        var prepRows = repo.rows("SELECT prep_id, name, steps, category FROM prep_item ORDER BY prep_id");
-        List<PrepCountItem> out = new ArrayList<>();
+        // 2. 一次批次載入所有半成品的底層原料（避免 N+1 查詢，並相容 021/026 的 prep_item_ingredient 結構）
+        Map<Long, List<PrepIngredientDto>> prepIngredientsMap = loadAllPrepIngredients();
 
+        // 3. 取得所有半成品主檔
+        var prepRows = repo.rows("SELECT prep_id, name, steps, category FROM prep_item ORDER BY prep_id");
+        Map<Long, String> prepNameMap = new HashMap<>();
+        for (var p : prepRows) {
+            prepNameMap.put(PosRepository.number(p, "prep_id"), (String) p.get("name"));
+        }
+
+        // 4. 載入今日各次製作時間紀錄（prep_production_log）
+        Map<Long, List<PrepProductionLogDto>> prodLogsByPrep = new HashMap<>();
+        Map<Long, BigDecimal> prodTotalByPrep = new HashMap<>();
+        if (useDbTables) {
+            var prodRows = repo.rows("""
+                SELECT l.log_id, l.prep_id, l.produced_qty, l.staff_id, l.created_at, l.note,
+                       s.name AS staff_name
+                FROM prep_production_log l
+                LEFT JOIN staff_account s ON s.staff_id = l.staff_id
+                WHERE l.business_date = ?
+                ORDER BY l.created_at ASC, l.log_id ASC
+                """, targetDate);
+            for (var r : prodRows) {
+                long prepId = PosRepository.number(r, "prep_id");
+                BigDecimal qty = decimal(r, "produced_qty").setScale(2, RoundingMode.HALF_UP);
+                List<PrepIngredientDto> baseIngs = prepIngredientsMap.getOrDefault(prepId, List.of());
+                List<PrepIngredientDto> usedIngs = scaleIngredients(baseIngs, qty);
+                PrepProductionLogDto dto = new PrepProductionLogDto(
+                    PosRepository.number(r, "log_id"),
+                    prepId,
+                    prepNameMap.getOrDefault(prepId, "半成品"),
+                    qty,
+                    "份",
+                    usedIngs,
+                    PosRepository.number(r, "staff_id"),
+                    Objects.toString(r.get("staff_name"), "門市人員"),
+                    timestamp(r.get("created_at")),
+                    (String) r.get("note")
+                );
+                prodLogsByPrep.computeIfAbsent(prepId, k -> new ArrayList<>()).add(dto);
+                prodTotalByPrep.merge(prepId, qty, BigDecimal::add);
+            }
+        } else {
+            for (var f : fallbackProdLogs) {
+                if (!targetDate.equals(f.businessDate())) continue;
+                List<PrepIngredientDto> baseIngs = prepIngredientsMap.getOrDefault(f.prepId(), List.of());
+                List<PrepIngredientDto> usedIngs = scaleIngredients(baseIngs, f.producedQty());
+                PrepProductionLogDto dto = new PrepProductionLogDto(
+                    f.logId(), f.prepId(), prepNameMap.getOrDefault(f.prepId(), "半成品"),
+                    f.producedQty(), "份", usedIngs, f.staffId(), f.staffName(), f.createdAt(), f.note()
+                );
+                prodLogsByPrep.computeIfAbsent(f.prepId(), k -> new ArrayList<>()).add(dto);
+                prodTotalByPrep.merge(f.prepId(), f.producedQty(), BigDecimal::add);
+            }
+        }
+
+        // 5. 載入今日半成品報廢紀錄（prep_wastage_log）
+        Map<Long, List<PrepWastageLogDto>> wasteLogsByPrep = new HashMap<>();
+        Map<Long, BigDecimal> wasteTotalByPrep = new HashMap<>();
+        if (useDbTables) {
+            var wasteRows = repo.rows("""
+                SELECT l.log_id, l.prep_id, l.wasted_qty, l.staff_id, l.created_at, l.note,
+                       s.name AS staff_name
+                FROM prep_wastage_log l
+                LEFT JOIN staff_account s ON s.staff_id = l.staff_id
+                WHERE l.business_date = ?
+                ORDER BY l.created_at ASC, l.log_id ASC
+                """, targetDate);
+            for (var r : wasteRows) {
+                long prepId = PosRepository.number(r, "prep_id");
+                BigDecimal qty = decimal(r, "wasted_qty").setScale(2, RoundingMode.HALF_UP);
+                PrepWastageLogDto dto = new PrepWastageLogDto(
+                    PosRepository.number(r, "log_id"),
+                    prepId,
+                    prepNameMap.getOrDefault(prepId, "半成品"),
+                    qty,
+                    "份",
+                    PosRepository.number(r, "staff_id"),
+                    Objects.toString(r.get("staff_name"), "門市人員"),
+                    timestamp(r.get("created_at")),
+                    (String) r.get("note")
+                );
+                wasteLogsByPrep.computeIfAbsent(prepId, k -> new ArrayList<>()).add(dto);
+                wasteTotalByPrep.merge(prepId, qty, BigDecimal::add);
+            }
+        } else {
+            for (var f : fallbackWastageLogs) {
+                if (!targetDate.equals(f.businessDate())) continue;
+                PrepWastageLogDto dto = new PrepWastageLogDto(
+                    f.logId(), f.prepId(), prepNameMap.getOrDefault(f.prepId(), "半成品"),
+                    f.wastedQty(), "份", f.staffId(), f.staffName(), f.createdAt(), f.note()
+                );
+                wasteLogsByPrep.computeIfAbsent(f.prepId(), k -> new ArrayList<>()).add(dto);
+                wasteTotalByPrep.merge(f.prepId(), f.wastedQty(), BigDecimal::add);
+            }
+        }
+
+        // 6. 組裝每個半成品的統計與時間紀錄
+        List<PrepCountItem> out = new ArrayList<>();
         for (var p : prepRows) {
             long prepId = PosRepository.number(p, "prep_id");
             String name = (String) p.get("name");
             String cat = (String) p.get("category");
+            BigDecimal todayProduced = prodTotalByPrep.getOrDefault(prepId, BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
             BigDecimal orderConsumed = orderConsumedMap.getOrDefault(prepId, BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
-            BigDecimal wasted = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            BigDecimal wasted = wasteTotalByPrep.getOrDefault(prepId, BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
 
-            // 目前數量預設為今日訂單消耗 + 5（或基本 10 份），保證理論量為合理正數
-            BigDecimal currentQty = orderConsumed.add(new BigDecimal("5.00"));
-            if (currentQty.compareTo(new BigDecimal("10.00")) < 0) {
-                currentQty = new BigDecimal("10.00");
-            }
+            // 目前剩餘半成品量 = 今日累計製作量 - 今日訂單消耗 - 今日已報廢半成品量
+            BigDecimal remainingQty = todayProduced.subtract(orderConsumed).subtract(wasted).setScale(2, RoundingMode.HALF_UP);
 
-            // 理論的量 = 目前數量 - 今日訂單消耗 - 今日報廢
-            BigDecimal theoreticalQty = currentQty.subtract(orderConsumed).subtract(wasted).setScale(2, RoundingMode.HALF_UP);
+            List<PrepIngredientDto> ingDtos = prepIngredientsMap.getOrDefault(prepId, List.of());
+            List<PrepProductionLogDto> pLogs = prodLogsByPrep.getOrDefault(prepId, List.of());
+            List<PrepWastageLogDto> wLogs = wasteLogsByPrep.getOrDefault(prepId, List.of());
 
-            // 解析組成原料
-            Map<Long, BigDecimal> rawIngredients = resolveRawIngredients(prepId, BigDecimal.ONE);
-            List<PrepIngredientDto> ingDtos = new ArrayList<>();
-            for (var entry : rawIngredients.entrySet()) {
-                var invRows = repo.rows("SELECT name, base_unit FROM inventory WHERE inventory_id=?", entry.getKey());
-                if (!invRows.isEmpty()) {
-                    ingDtos.add(new PrepIngredientDto(
-                        entry.getKey(),
-                        (String) invRows.getFirst().get("name"),
-                        entry.getValue().setScale(3, RoundingMode.HALF_UP),
-                        (String) invRows.getFirst().get("base_unit")
-                    ));
-                }
-            }
-
-            out.add(new PrepCountItem(prepId, name, cat != null ? cat : "半成品", "份", currentQty, orderConsumed, wasted, theoreticalQty, ingDtos));
+            out.add(new PrepCountItem(
+                prepId,
+                name,
+                cat != null && !cat.isBlank() ? cat : "半成品",
+                "份",
+                todayProduced,
+                orderConsumed,
+                wasted,
+                remainingQty,
+                ingDtos,
+                pLogs,
+                wLogs
+            ));
         }
 
         return out;
     }
 
-    /** 遞迴解析半成品的底層原始原料 (處理 sub_prep_id) */
+    /**
+     * 批次讀取所有半成品直接對應的組成材料（直接顯示原料與子半成品，例如：綠茶凍 = 茶凍粉 0.3包 + 綠茶 0.5份）。
+     */
+    private Map<Long, List<PrepIngredientDto>> loadAllPrepIngredients() {
+        Map<Long, List<PrepIngredientDto>> map = new HashMap<>();
+        var rows = repo.rows("""
+            SELECT g.prep_id, g.inventory_id, g.sub_prep_id, COALESCE(g.qty, 1) AS qty,
+                   i.name AS inv_name, i.base_unit AS inv_unit,
+                   sp.name AS sub_prep_name
+            FROM prep_item_ingredient g
+            LEFT JOIN inventory i ON i.inventory_id = g.inventory_id
+            LEFT JOIN prep_item sp ON sp.prep_id = g.sub_prep_id
+            ORDER BY g.prep_id, g.line_id
+            """);
+        for (var r : rows) {
+            long prepId = PosRepository.number(r, "prep_id");
+            BigDecimal qty = decimal(r, "qty");
+            if (qty == null) qty = BigDecimal.ONE;
+            qty = qty.setScale(3, RoundingMode.HALF_UP);
+
+            if (r.get("inventory_id") != null) {
+                long invId = PosRepository.number(r, "inventory_id");
+                String name = Objects.toString(r.get("inv_name"), "原料");
+                String unit = Objects.toString(r.get("inv_unit"), "份");
+                map.computeIfAbsent(prepId, k -> new ArrayList<>())
+                   .add(new PrepIngredientDto(invId, name, qty, unit));
+            } else if (r.get("sub_prep_id") != null) {
+                long subPrepId = PosRepository.number(r, "sub_prep_id");
+                String name = Objects.toString(r.get("sub_prep_name"), "半成品");
+                map.computeIfAbsent(prepId, k -> new ArrayList<>())
+                   .add(new PrepIngredientDto(100000L + subPrepId, name, qty, "份"));
+            }
+        }
+        return map;
+    }
+
+    private List<PrepIngredientDto> scaleIngredients(List<PrepIngredientDto> base, BigDecimal factor) {
+        List<PrepIngredientDto> out = new ArrayList<>(base.size());
+        for (var ing : base) {
+            out.add(new PrepIngredientDto(
+                ing.inventoryId(),
+                ing.name(),
+                ing.qty().multiply(factor).setScale(3, RoundingMode.HALF_UP),
+                ing.unit()
+            ));
+        }
+        return out;
+    }
+
+    /** 遞迴解析半成品的底層原始原料 (支援 prep_item_ingredient 的 qty 與 sub_prep_id) */
     public Map<Long, BigDecimal> resolveRawIngredients(long prepId, BigDecimal factor) {
         Map<Long, BigDecimal> result = new HashMap<>();
         resolveRawIngredientsHelper(prepId, factor, result, new HashSet<>());
@@ -331,6 +524,89 @@ public class InventoryCountService {
                 resolveRawIngredientsHelper(subPrepId, total, result, visited);
             }
         }
+    }
+
+    /**
+     * 新增今日半成品製作量（煮了多少茶、多少料）：
+     * 支援同一個半成品一天內進行 2、3 次（多次）新增，每次記錄時間與登記人員。
+     */
+    public Map<String, Object> recordPrepProduction(PrepProductionSubmit request, long staffId) {
+        LocalDate today = LocalDate.now(clock);
+        LocalDateTime now = LocalDateTime.now(clock);
+        boolean useDbTables = ensurePrepLogTables();
+
+        String staffName = "門市人員";
+        var staffRows = repo.rows("SELECT name FROM staff_account WHERE staff_id=?", staffId);
+        if (!staffRows.isEmpty() && staffRows.getFirst().get("name") != null) {
+            staffName = staffRows.getFirst().get("name").toString();
+        }
+
+        String note = request.note() == null || request.note().isBlank() ? null : request.note().trim();
+        int count = 0;
+
+        for (var line : request.lines()) {
+            BigDecimal qty = line.producedQty().setScale(2, RoundingMode.HALF_UP);
+            if (qty.signum() <= 0) continue;
+            if (useDbTables) {
+                repo.insert("log_id", """
+                    INSERT INTO prep_production_log(business_date, prep_id, produced_qty, staff_id, created_at, note)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, today, line.prepId(), qty, staffId, now, note);
+            } else {
+                long id = fallbackLogSeq.getAndIncrement();
+                fallbackProdLogs.add(new FallbackProdLog(id, today, line.prepId(), qty, staffId, staffName, now, note));
+            }
+            count++;
+        }
+
+        List<PrepCountItem> updatedItems = prepItems(today);
+        return Map.of(
+            "success", true,
+            "recordedCount", count,
+            "items", updatedItems,
+            "message", "已新增 " + count + " 項半成品今日製作紀錄（含時間與底層原料換算）"
+        );
+    }
+
+    /**
+     * 將剩餘半成品記錄為半成品報廢量（與「原料報廢回報」生原料出問題分開記錄）。
+     */
+    public Map<String, Object> recordPrepWastage(PrepWastageSubmit request, long staffId) {
+        LocalDate today = LocalDate.now(clock);
+        LocalDateTime now = LocalDateTime.now(clock);
+        boolean useDbTables = ensurePrepLogTables();
+
+        String staffName = "門市人員";
+        var staffRows = repo.rows("SELECT name FROM staff_account WHERE staff_id=?", staffId);
+        if (!staffRows.isEmpty() && staffRows.getFirst().get("name") != null) {
+            staffName = staffRows.getFirst().get("name").toString();
+        }
+
+        String note = request.note() == null || request.note().isBlank() ? "剩餘半成品報廢" : request.note().trim();
+        int count = 0;
+
+        for (var line : request.lines()) {
+            BigDecimal qty = line.wastedQty().setScale(2, RoundingMode.HALF_UP);
+            if (qty.signum() <= 0) continue;
+            if (useDbTables) {
+                repo.insert("log_id", """
+                    INSERT INTO prep_wastage_log(business_date, prep_id, wasted_qty, staff_id, created_at, note)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, today, line.prepId(), qty, staffId, now, note);
+            } else {
+                long id = fallbackLogSeq.getAndIncrement();
+                fallbackWastageLogs.add(new FallbackWastageLog(id, today, line.prepId(), qty, staffId, staffName, now, note));
+            }
+            count++;
+        }
+
+        List<PrepCountItem> updatedItems = prepItems(today);
+        return Map.of(
+            "success", true,
+            "recordedCount", count,
+            "items", updatedItems,
+            "message", "已記錄 " + count + " 項剩餘半成品報廢量（獨立於生原料報廢回報）"
+        );
     }
 
     /**
