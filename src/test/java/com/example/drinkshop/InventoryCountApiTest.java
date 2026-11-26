@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** 原料盤點：記錄差異並把帳面改成實點；只限個人帳號；重送不重複；同一批全部成功或全部不記錄。 */
+/** 原料盤點：員工送出、店長確認、重送和過期盤點的庫存保護。 */
 @SpringBootTest(properties = {
         "spring.config.import=",
         "pos.demo.enabled=false",
@@ -52,6 +52,7 @@ class InventoryCountApiTest {
         jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (10,'c_staff',?,'盤點員工','STAFF',TRUE)", passwords.encode(PASSWORD));
         jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (11,'c_other',?,'另一員工','STAFF',TRUE)", passwords.encode(PASSWORD));
         jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (12,'c_pos',?,'門市 POS','POS',TRUE)", passwords.encode(PASSWORD));
+        jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (13,'c_manager',?,'盤點店長','MANAGER',TRUE)", passwords.encode(PASSWORD));
         // 固定帳面數量與成本，讓差異好算
         jdbc.update("UPDATE inventory SET book_qty=100, unit_cost=2 WHERE inventory_id=1");
         jdbc.update("UPDATE inventory SET book_qty=100, unit_cost=NULL WHERE inventory_id=5");
@@ -63,7 +64,7 @@ class InventoryCountApiTest {
     }
 
     @Test
-    void countIsRecordedWithSnapshotAndBookQtyBecomesCounted() throws Exception {
+    void staffCountPreservesTheSnapshotAndChangesBookQtyAfterApproval() throws Exception {
         String id = UUID.randomUUID().toString();
         submit("c_staff", "{\"requestId\":\"" + id + "\",\"typeId\":1,\"note\":\"月底盤點\",\"lines\":["
                 + "{\"inventoryId\":1,\"countedQty\":95},{\"inventoryId\":5,\"countedQty\":103}]}")
@@ -75,17 +76,22 @@ class InventoryCountApiTest {
                 .andExpect(jsonPath("$[0].diffCost").value(-10.0))
                 .andExpect(jsonPath("$[0].countedBy").value(10))
                 .andExpect(jsonPath("$[0].countedByName").value("盤點員工"))
-                .andExpect(jsonPath("$[0].note").value("月底盤點"))
+                .andExpect(jsonPath("$[0].note").value("月底盤點 [待店長審核]"))
                 .andExpect(jsonPath("$[1].diffQty").value(3.0))
                 .andExpect(jsonPath("$[1].diffCost").doesNotExist());
         // 一次盤點只有一筆表頭（盤點人、時間、備註只存一次），兩項原料是兩筆明細
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM inventory_count", Integer.class));
         assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM inventory_count_line", Integer.class));
-        assertEquals("月底盤點", jdbc.queryForObject("SELECT note FROM inventory_count", String.class));
-        // 帳面庫存改成實點數量（盤點前的帳面 100 留在明細）；原料主檔的「最新盤點」欄位更新成這次
-        assertEquals(0, new BigDecimal("95").compareTo(jdbc.queryForObject("SELECT book_qty FROM inventory WHERE inventory_id=1", BigDecimal.class)));
+        assertEquals("月底盤點 [待店長審核]", jdbc.queryForObject("SELECT note FROM inventory_count", String.class));
+        assertBookQty(1, "100");
         assertEquals(0, new BigDecimal("95").compareTo(jdbc.queryForObject("SELECT reported_qty FROM inventory WHERE inventory_id=1", BigDecimal.class)));
         assertEquals(10L, jdbc.queryForObject("SELECT reported_by FROM inventory WHERE inventory_id=1", Long.class));
+        long countId = jdbc.queryForObject("SELECT count_id FROM inventory_count WHERE request_id=?", Long.class, id);
+        approve("c_staff", countId).andExpect(status().isForbidden());
+        approve("c_manager", countId).andExpect(status().isOk());
+        assertBookQty(1, "95");
+        assertBookQty(5, "103");
+        assertEquals("月底盤點 [店長已確認]", jdbc.queryForObject("SELECT note FROM inventory_count", String.class));
         // 之後成本改了，舊紀錄的差異金額不變
         jdbc.update("UPDATE inventory SET unit_cost=9 WHERE inventory_id=1");
         mvc.perform(get("/api/inventory-counts").with(login("c_staff", PASSWORD)))
@@ -93,6 +99,67 @@ class InventoryCountApiTest {
                 .andExpect(jsonPath("$.enabled").value(true))
                 .andExpect(jsonPath("$.rows.length()").value(2))
                 .andExpect(jsonPath("$.rows[0].diffCost").value(-10.0));
+    }
+
+    @Test
+    void replayingAnApprovedCountKeepsTheNewerBookQty() throws Exception {
+        long old = count("c_staff", "{\"inventoryId\":1,\"countedQty\":33}", "[待店長審核] 實際備註");
+        approve("c_manager", old).andExpect(status().isOk());
+        count("c_manager", "{\"inventoryId\":1,\"countedQty\":34}", "較新的盤點");
+
+        approve("c_manager", old).andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("這筆盤點已確認"));
+        assertBookQty(1, "34");
+        assertEquals("[待店長審核] 實際備註 [店長已確認]",
+                jdbc.queryForObject("SELECT note FROM inventory_count WHERE count_id=?", String.class, old));
+    }
+
+    @Test
+    void olderPendingCountCannotOverwriteNewerCountEvenWhenBookQtyIsUnchanged() throws Exception {
+        long old = count("c_staff", "{\"inventoryId\":1,\"countedQty\":33}", "舊單");
+        long latest = count("c_other", "{\"inventoryId\":1,\"countedQty\":34}", "新單");
+        approve("c_manager", old).andExpect(status().isConflict());
+        assertBookQty(1, "100");
+        approve("c_manager", latest).andExpect(status().isOk());
+        assertBookQty(1, "34");
+    }
+
+    @Test
+    void manualBookAdjustmentRejectsTheWholePendingCount() throws Exception {
+        long pending = count("c_staff", "{\"inventoryId\":1,\"countedQty\":33},{\"inventoryId\":5,\"countedQty\":50}", "兩項");
+        jdbc.update("UPDATE inventory SET book_qty=80 WHERE inventory_id=5");
+        approve("c_manager", pending).andExpect(status().isConflict());
+        assertBookQty(1, "100");
+        assertBookQty(5, "80");
+        assertEquals("兩項 [待店長審核]", jdbc.queryForObject("SELECT note FROM inventory_count WHERE count_id=?", String.class, pending));
+    }
+
+    @Test
+    void countNoteFitsBothPendingAndApprovedRecords() throws Exception {
+        String fullNote = "茶".repeat(247);
+        long pending = count("c_staff", "{\"inventoryId\":1,\"countedQty\":33}", fullNote);
+        approve("c_manager", pending).andExpect(status().isOk());
+        assertEquals(fullNote + " [店長已確認]",
+                jdbc.queryForObject("SELECT note FROM inventory_count WHERE count_id=?", String.class, pending));
+        submit("c_staff", "{\"requestId\":\"" + UUID.randomUUID() + "\",\"typeId\":1,\"note\":\"" + fullNote + "葉\","
+                + "\"lines\":[{\"inventoryId\":1,\"countedQty\":34}]}")
+                .andExpect(status().isBadRequest());
+    }
+
+    private long count(String user, String lines, String note) throws Exception {
+        String id = UUID.randomUUID().toString();
+        submit(user, "{\"requestId\":\"" + id + "\",\"typeId\":1,\"note\":\"" + note + "\",\"lines\":[" + lines + "]}")
+                .andExpect(status().isCreated());
+        return jdbc.queryForObject("SELECT count_id FROM inventory_count WHERE request_id=?", Long.class, id);
+    }
+
+    private ResultActions approve(String user, long countId) throws Exception {
+        return mvc.perform(post("/api/inventory-counts/{id}/approve", countId).with(login(user, PASSWORD)));
+    }
+
+    private void assertBookQty(long inventoryId, String expectedQty) {
+        assertEquals(0, new BigDecimal(expectedQty).compareTo(jdbc.queryForObject(
+                "SELECT book_qty FROM inventory WHERE inventory_id=?", BigDecimal.class, inventoryId)));
     }
 
     @Test
@@ -156,8 +223,7 @@ class InventoryCountApiTest {
                 .andExpect(jsonPath("$[?(@.inventoryId == 20)].displayByPack").value(true))
                 .andExpect(jsonPath("$[?(@.inventoryId == 20)].bookQty").value(153.0));
         // 日結與報廢頁用的原料清單（POS 帳號）也帶這個設定
-        jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (13,'c_pos2',?,'門市 POS','POS',TRUE)", passwords.encode(PASSWORD));
-        mvc.perform(get("/api/inventories").with(login("c_pos2", PASSWORD)))
+        mvc.perform(get("/api/inventories").with(login("c_pos", PASSWORD)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.inventoryId == 20)].displayByPack").value(true))
                 .andExpect(jsonPath("$[?(@.inventoryId == 1)].displayByPack").value(false));

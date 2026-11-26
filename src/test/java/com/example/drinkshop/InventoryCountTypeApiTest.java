@@ -108,8 +108,8 @@ class InventoryCountTypeApiTest {
                 .andExpect(jsonPath("$[0].typeName").value("小盤"))
                 .andExpect(jsonPath("$[0].inputMode").value("PACK_ONLY"))
                 .andExpect(jsonPath("$[0].diffQty").value(50.0));
-        // 小盤也覆蓋帳面
-        assertEquals(0, new BigDecimal("150").compareTo(jdbc.queryForObject("SELECT book_qty FROM inventory WHERE inventory_id=1", BigDecimal.class)));
+        // 員工送出小盤後仍由店長確認，盤點類型只決定輸入方式。
+        assertEquals(0, new BigDecimal("100").compareTo(jdbc.queryForObject("SELECT book_qty FROM inventory WHERE inventory_id=1", BigDecimal.class)));
         // 大盤（全部原料、箱數＋零散）：零頭可以
         count(1, "{\"inventoryId\":1,\"countedQty\":160},{\"inventoryId\":3,\"countedQty\":99}").andExpect(status().isCreated())
                 .andExpect(jsonPath("$[0].typeName").value("大盤"));

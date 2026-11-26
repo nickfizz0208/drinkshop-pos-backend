@@ -18,7 +18,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 /**
- * 原料盤點：記錄實點數量與當時的帳面數量、差異，並把帳面庫存（book_qty）改成實點數量。
+ * 原料盤點：保留盤點時的帳面及差異，店長送出或確認後才更新帳面庫存。
  * 點餐、取消、報廢都不扣帳面，帳面只由盤點（與手動校正）決定。
  * 資料表（017）：inventory_count 是表頭（一次盤點一列），inventory_count_line 是明細（每項原料一列）。
  * 盤點類型（018）：inventory_count_type 決定輸入方式與要盤哪些原料；表頭另存當時的類型名稱與輸入方式。
@@ -29,6 +29,8 @@ import java.util.*;
 public class InventoryCountService {
     /** 一次最多查 31 天，避免一次撈出太多資料。 */
     static final int MAX_RANGE_DAYS = 31;
+    private static final String PENDING = "[待店長審核]";
+    private static final String APPROVED = "[店長已確認]";
 
     private final PosRepository repo;
     private final InventoryRepository inventories;
@@ -76,11 +78,7 @@ public class InventoryCountService {
         String note = request.note() == null || request.note().isBlank() ? null : request.note().trim();
         var staffRows = repo.rows("SELECT * FROM staff_account WHERE staff_id=?", staffId);
         boolean isManager = !staffRows.isEmpty() && ("MANAGER".equals(staffRows.getFirst().get("level")) || "HQ".equals(staffRows.getFirst().get("level")));
-        if (!isManager) {
-            note = (note == null ? "" : note + " ") + "[待店長審核]";
-        } else {
-            note = (note == null ? "" : note + " ") + "[店長已確認]";
-        }
+        note = (note == null ? "" : note + " ") + (isManager ? APPROVED : PENDING);
         LocalDateTime now = LocalDateTime.now(clock);
         // 表頭：一次盤點一列（盤點人、時間、備註只存一次）
         long countId;
@@ -203,27 +201,50 @@ public class InventoryCountService {
 
     /** 店長審核確認盤點紀錄：將實點數量更新為帳面數量 (book_qty)。 */
     public Map<String, Object> approveCount(long countId, long staffId) {
+        requireEnabled();
         var staffRows = repo.rows("SELECT * FROM staff_account WHERE staff_id=?", staffId);
         boolean isManager = !staffRows.isEmpty() && ("MANAGER".equals(staffRows.getFirst().get("level")) || "HQ".equals(staffRows.getFirst().get("level")));
         if (!isManager) {
             throw ApiException.forbidden("只限店長或總部審核盤點紀錄");
         }
-        var countRows = repo.rows("SELECT * FROM inventory_count WHERE count_id=?", countId);
+        // 同一筆盤點只審核一次。另一個請求取得表頭鎖時會先看到已確認的狀態。
+        var countRows = repo.rows("SELECT note FROM inventory_count WHERE count_id=? FOR UPDATE", countId);
         if (countRows.isEmpty()) {
             throw ApiException.missing("查無此盤點紀錄");
         }
-        var lines = repo.rows("SELECT inventory_id, counted_qty FROM inventory_count_line WHERE count_id=?", countId);
+        String note = Objects.toString(countRows.getFirst().get("note"), "").stripTrailing();
+        if (note.endsWith(APPROVED) || note.endsWith("[店長已審核確認]") || note.endsWith("[半成品盤點-店長已確認扣庫]")) {
+            return Map.of("success", true, "message", "這筆盤點已確認");
+        }
+        if (!note.endsWith(PENDING)) {
+            throw ApiException.conflict("這筆盤點不在待審核狀態");
+        }
+        var lines = repo.rows("""
+                SELECT inventory_id, counted_qty, book_qty
+                FROM inventory_count_line WHERE count_id=? ORDER BY inventory_id
+                """, countId);
+        if (lines.isEmpty()) {
+            throw ApiException.conflict("這筆盤點沒有原料明細");
+        }
         for (var line : lines) {
             long invId = PosRepository.number(line, "inventory_id");
-            BigDecimal counted = decimal(line, "counted_qty");
-            inventories.findLocked(invId).ifPresent(inv -> {
-                inv.setBookQty(counted);
-                inventories.save(inv);
-            });
+            var inventory = inventories.findLocked(invId)
+                    .orElseThrow(() -> ApiException.conflict("盤點原料已變更，請重新盤點"));
+            // 送出盤點和手動校正也會鎖原料。在鎖內核對最新盤點和帳面快照。
+            var latest = repo.one("""
+                    SELECT c.count_id FROM inventory_count_line l
+                    JOIN inventory_count c ON c.count_id=l.count_id
+                    WHERE l.inventory_id=?
+                    ORDER BY c.counted_at DESC, c.count_id DESC LIMIT 1
+                    """, invId);
+            if (PosRepository.number(latest, "count_id") != countId
+                    || inventory.getBookQty().compareTo(decimal(line, "book_qty")) != 0) {
+                throw ApiException.conflict("「" + inventory.getName() + "」已有較新的盤點或帳面異動，請核對最新紀錄");
+            }
+            inventory.setBookQty(decimal(line, "counted_qty"));
         }
-        String currentNote = (String) countRows.getFirst().get("note");
-        String updatedNote = (currentNote == null ? "" : currentNote.replace("[半成品盤點待店長審核]", "").replace("[待店長審核]", "").trim() + " ") + "[店長已審核確認]";
-        repo.update("UPDATE inventory_count SET note=? WHERE count_id=?", updatedNote.trim(), countId);
+        repo.update("UPDATE inventory_count SET note=? WHERE count_id=?",
+                note.substring(0, note.length() - PENDING.length()) + APPROVED, countId);
 
         return Map.of("success", true, "message", "店長已審核確認，帳面庫存已依盤點實點數量完成更新");
     }

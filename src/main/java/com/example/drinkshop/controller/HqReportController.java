@@ -1,5 +1,6 @@
 package com.example.drinkshop.controller;
 
+import com.example.drinkshop.exception.ApiException;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
@@ -7,11 +8,13 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 /**
  * 總部專屬營運報表 API（只限 HQ 帳號，由 SecurityConfig 控制）：
- * 支援「日營收（mode=day）」與「月營收（mode=month）」切換，
+ * 支援日、月和自訂區間，
  * 統計總營收、訂單數、銷售杯數、報廢損耗、營收走勢圖、熱銷飲品排行與訂單明細。
  */
 @RestController
@@ -31,23 +34,45 @@ public class HqReportController {
             @RequestParam(name = "mode", defaultValue = "month") String mode,
             @RequestParam(name = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(name = "year", required = false) Integer year,
-            @RequestParam(name = "month", required = false) Integer month) {
+            @RequestParam(name = "month", required = false) Integer month,
+            @RequestParam(name = "from", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(name = "to", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(name = "storeIds", required = false) List<Long> storeIds) {
 
+        if (storeIds != null && !storeIds.isEmpty()) {
+            throw ApiException.bad("目前的報表尚未支援分店篩選");
+        }
+        String reportMode = mode.toLowerCase(Locale.ROOT);
+        if (!Set.of("day", "month", "range").contains(reportMode)) {
+            throw ApiException.bad("報表期間只能選日、月或自訂區間");
+        }
         LocalDate today = LocalDate.now(clock);
-        boolean isDay = "day".equalsIgnoreCase(mode);
         LocalDate targetDate = date != null ? date : today;
         int targetYear = year != null ? year : today.getYear();
         int targetMonth = (month != null && month >= 1 && month <= 12) ? month : today.getMonthValue();
+        LocalDate periodFrom;
+        LocalDate periodTo;
+        switch (reportMode) {
+            case "range" -> {
+                if (from == null || to == null || from.isAfter(to)) {
+                    throw ApiException.bad("請選擇有效的開始和結束日期");
+                }
+                if (ChronoUnit.DAYS.between(from, to) >= 92) {
+                    throw ApiException.bad("一次最多查詢 92 天");
+                }
+                periodFrom = from;
+                periodTo = to;
+            }
+            case "day" -> periodFrom = periodTo = targetDate;
+            default -> {
+                YearMonth period = YearMonth.of(targetYear, targetMonth);
+                periodFrom = period.atDay(1);
+                periodTo = period.atEndOfMonth();
+            }
+        }
 
-        String orderDateCondition = isDay
-                ? "o.business_date = ?"
-                : "YEAR(o.business_date) = ? AND MONTH(o.business_date) = ?";
-        String wasteDateCondition = isDay
-                ? "w.business_date = ?"
-                : "YEAR(w.business_date) = ? AND MONTH(w.business_date) = ?";
-        Object[] params = isDay
-                ? new Object[] { targetDate }
-                : new Object[] { targetYear, targetMonth };
+        String orderDateCondition = "o.business_date BETWEEN ? AND ?";
+        Object[] params = { periodFrom, periodTo };
 
         // 1. 總覽指標：營收、訂單數、銷售杯數
         Map<String, Object> salesRow = jdbc.queryForMap(
@@ -63,7 +88,7 @@ public class HqReportController {
                 params);
 
         BigDecimal rawWastageCost = jdbc.queryForObject(
-                "SELECT COALESCE(SUM(w.material_cost), 0) FROM raw_material_wastage w WHERE " + wasteDateCondition,
+                        "SELECT COALESCE(SUM(material_cost), 0) FROM raw_material_wastage WHERE business_date BETWEEN ? AND ?",
                 BigDecimal.class, params);
 
         Map<String, Object> summary = new LinkedHashMap<>();
@@ -73,9 +98,9 @@ public class HqReportController {
         summary.put("wastedCups", toLong(salesRow.get("wasted_cups")));
         summary.put("rawWastageCost", rawWastageCost != null ? rawWastageCost : BigDecimal.ZERO);
 
-        // 2. 走勢圖資料（月模式：每日營收；日模式：每小時營收）
+        // 2. 單日按時段，多日按日期。
         List<Map<String, Object>> trend;
-        if (isDay) {
+        if (periodFrom.equals(periodTo)) {
             trend = jdbc.queryForList("""
 
         SELECT CONCAT(LPAD(HOUR(o.created_at), 2, '0'), ':00') AS label,
@@ -88,22 +113,20 @@ public class HqReportController {
                       AND i.status NOT IN ('CANCELLED', 'WASTED')
                     GROUP BY label
                     ORDER BY label ASC
-                    """, targetDate);
-        }else
-
-        {
+                    """, periodFrom);
+        } else {
                 trend = jdbc.queryForList("""
                                 SELECT DATE_FORMAT(o.business_date, '%m/%d') AS label,
                                        COALESCE(SUM(i.qty * i.unit_price), 0) AS revenue,
                                        COALESCE(SUM(i.qty), 0) AS cups
                                 FROM pos_order o
                                 JOIN order_item i ON i.order_id = o.order_id
-                                WHERE YEAR(o.business_date) = ? AND MONTH(o.business_date) = ?
+                                WHERE o.business_date BETWEEN ? AND ?
                                   AND o.status != 'CANCELLED'
                                   AND i.status NOT IN ('CANCELLED', 'WASTED')
-                                GROUP BY label
-                                ORDER BY label ASC
-                                """, targetYear, targetMonth);
+                                GROUP BY o.business_date
+                                ORDER BY o.business_date ASC
+                                """, params);
         }
 
         // 3. 熱銷飲品排行（賣的東西統計）
@@ -142,7 +165,18 @@ public class HqReportController {
                                                         """,
                         params);
 
-        Map<String, Object> result = new LinkedHashMap<>();result.put("mode",isDay?"day":"month");result.put("date",targetDate.toString());result.put("year",targetYear);result.put("month",targetMonth);result.put("summary",summary);result.put("trend",trend);result.put("topProducts",topProducts);result.put("orders",orders);return result;
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("mode", reportMode);
+        result.put("from", periodFrom.toString());
+        result.put("to", periodTo.toString());
+        result.put("date", targetDate.toString());
+        result.put("year", targetYear);
+        result.put("month", targetMonth);
+        result.put("summary", summary);
+        result.put("trend", trend);
+        result.put("topProducts", topProducts);
+        result.put("orders", orders);
+        return result;
     }
 
     private static BigDecimal toDecimal(Object value) {

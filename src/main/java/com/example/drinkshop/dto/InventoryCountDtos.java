@@ -27,7 +27,7 @@ public final class InventoryCountDtos {
         @NotNull UUID requestId,
         @NotNull(message = "請選擇盤點類型") @Positive Long typeId,
         @NotEmpty(message = "請至少盤點一項原料") @Size(max = 200) List<@Valid @NotNull Line> lines,
-        @Size(max = 255, message = "備註不能超過 255 字") String note) {}
+        @Size(max = 247, message = "備註不能超過 247 字") String note) {}
 
     /**
      * 一次盤點中的一項原料；countId 是那一次盤點的編號（同一次的每一項相同）。
