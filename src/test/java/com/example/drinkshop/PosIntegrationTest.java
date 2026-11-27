@@ -119,7 +119,8 @@ class PosIntegrationTest {
         for(String user:List.of("test_clerk","test_manager")) {
             mvc.perform(get("/api/orders").with(login(user,PASSWORD))).andExpect(status().isForbidden());
             mvc.perform(post("/api/orders").with(login(user,PASSWORD)).contentType("application/json").content("{}")).andExpect(status().isForbidden());
-            mvc.perform(get("/api/daily-shifts/2026-01-01").with(login(user,PASSWORD))).andExpect(status().isForbidden());
+            mvc.perform(get("/api/daily-shifts/2026-10-28").with(login(user,PASSWORD)))
+                .andExpect("test_manager".equals(user) ? status().isOk() : status().isForbidden());
             mvc.perform(post("/api/daily-shifts/open").with(login(user,PASSWORD)).contentType("application/json").content("{}")).andExpect(status().isForbidden());
             mvc.perform(get("/api/members").with(login(user,PASSWORD))).andExpect(status().isForbidden());
             mvc.perform(post("/api/route").with(login(user,PASSWORD)).contentType("application/json").content("{\"lat\":22.6,\"lng\":120.3}")).andExpect(status().isForbidden());

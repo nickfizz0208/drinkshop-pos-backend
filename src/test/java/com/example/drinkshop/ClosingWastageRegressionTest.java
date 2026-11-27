@@ -107,6 +107,60 @@ public class ClosingWastageRegressionTest {
     }
 
 
+    @Test void systemClosingRequiresManagerCountAndPreservesSnapshot() throws Exception {
+        jdbc.update("INSERT INTO staff_account(staff_id,username,password_hash,name,level,active) VALUES (30,'cash_manager',?,'清點店長','MANAGER',TRUE)",passwordEncoder.encode(TEST_PASS));
+        jdbc.update("INSERT INTO daily_shift(business_date,status,opened_by,opened_at,petty_cash,roles_json) VALUES ('2026-10-27','OPEN',10,'2026-10-27 09:00:00',1000,'[]')");
+        org.junit.jupiter.api.Assertions.assertEquals(1, shifts.closeOverdueShifts(day));
+        org.junit.jupiter.api.Assertions.assertEquals(0, shifts.closeOverdueShifts(day));
+        var before = shifts.getShift(day.minusDays(1));
+        org.junit.jupiter.api.Assertions.assertNull(before.getCountedCash());
+        org.junit.jupiter.api.Assertions.assertNull(before.getClosedBy());
+        String path = "/api/daily-shifts/2026-10-27/reconcile";
+        String body = "{\"countedCash\":980,\"diffReason\":\"找零短少\"}";
+        for (var user : java.util.List.of(TEST_USER, POS_USER)) {
+            mockMvc.perform(post(path).with(login(user,TEST_PASS)).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
+        }
+        mockMvc.perform(get("/api/daily-shifts/2026-10-27").with(login("cash_manager",TEST_PASS)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.countedCash").doesNotExist());
+        mockMvc.perform(post(path).with(login("cash_manager",TEST_PASS)).contentType(MediaType.APPLICATION_JSON).content("{\"countedCash\":980}"))
+            .andExpect(status().isBadRequest());
+        for (int i=0; i<2; i++)
+            mockMvc.perform(post(path).with(login("cash_manager",TEST_PASS)).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.countedCash").value(980))
+                .andExpect(jsonPath("$.closedBy").value(30)).andExpect(jsonPath("$.expectedCash").value(1000))
+                .andExpect(jsonPath("$.closedAt").value("2026-10-27T23:59:59"));
+        mockMvc.perform(post(path).with(login("cash_manager",TEST_PASS)).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"countedCash\":970,\"diffReason\":\"再改一次\"}")).andExpect(status().isConflict());
+        mockMvc.perform(get("/api/orders").with(login("cash_manager",TEST_PASS))).andExpect(status().isForbidden());
+        org.junit.jupiter.api.Assertions.assertEquals("OPEN",shifts.getShift(day).getStatus());
+    }
+
+    @Test void simultaneousCashCountsOnlyAcceptOneManager() throws Exception {
+        jdbc.update("UPDATE daily_shift SET status='CLOSED',closed_at='2026-10-28 23:59:59',cups=0,revenue_by_payment='{}',expected_cash=1000,diff_reason='系統逾午夜自動收班' WHERE business_date=?",day);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        try (var pool = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            java.util.concurrent.Callable<Boolean> first = () -> {
+                start.await();
+                try { shifts.reconcileCash(day,1L,new BigDecimal("980"),"短少"); return true; }
+                catch (com.example.drinkshop.exception.ApiException conflict) { return false; }
+            };
+            java.util.concurrent.Callable<Boolean> second = () -> {
+                start.await();
+                try { shifts.reconcileCash(day,2L,new BigDecimal("990"),"短少"); return true; }
+                catch (com.example.drinkshop.exception.ApiException conflict) { return false; }
+            };
+            var a = pool.submit(first); var b = pool.submit(second); start.countDown();
+            org.junit.jupiter.api.Assertions.assertNotEquals(a.get(10,java.util.concurrent.TimeUnit.SECONDS),b.get(10,java.util.concurrent.TimeUnit.SECONDS));
+        }
+    }
+
+    @Test void legacySystemClosingCanBeConfirmedWithoutAutomaticBackfill() {
+        jdbc.update("UPDATE daily_shift SET status='CLOSED',closed_at='2026-10-28 23:59:59',cups=0,revenue_by_payment='{}',expected_cash=1000,counted_cash=1000,closed_by=10,diff_reason='系統逾午夜自動收班' WHERE business_date=?",day);
+        var confirmed=shifts.reconcileCash(day,10L,new BigDecimal("1000"),null);
+        org.junit.jupiter.api.Assertions.assertTrue(confirmed.getDiffReason().contains("清點確認"));
+        org.junit.jupiter.api.Assertions.assertEquals(0,confirmed.getCountedCash().compareTo(new BigDecimal("1000")));
+    }
+
     private final LocalDate day=LocalDate.of(2026,10,28);
     private com.fasterxml.jackson.databind.JsonNode create(com.example.drinkshop.dto.OrderRequests.Payment payment, boolean unpaid) throws Exception {
         var item=new com.example.drinkshop.dto.OrderRequests.Item(1L, com.example.drinkshop.dto.OrderRequests.Size.M,

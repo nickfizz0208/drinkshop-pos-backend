@@ -104,6 +104,17 @@ public class DailyShiftController {
         return ResponseEntity.ok(shift);
     }
 
+    @PostMapping("/{businessDate}/reconcile")
+    public DailyShift reconcile(
+            @PathVariable LocalDate businessDate,
+            @Valid @RequestBody com.example.drinkshop.dto.ReconcileCashRequest request,
+            Principal principal) {
+        var staff = posRepository.staff(principal.getName()).filter(com.example.drinkshop.entity.Staff::active)
+            .orElseThrow(() -> ApiException.forbidden("帳號已停用"));
+        if (!"MANAGER".equals(staff.level())) throw ApiException.forbidden("只有店長可確認清點");
+        return dailyShiftService.reconcileCash(businessDate, staff.id(), request.countedCash(), request.diffReason());
+    }
+
     // 開班、關班人員：一定要選，而且要是在職員工本人（POS 共用帳號不是人）
     private Long requirePerson(Long staffId, String action) {
         if (staffId == null) throw ApiException.bad("請選擇" + action + "人員");

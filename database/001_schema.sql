@@ -100,10 +100,12 @@ CREATE TABLE daily_shift (
   CHECK (cups IS NULL OR cups >= 0),
   CHECK (expected_cash IS NULL OR expected_cash >= 0),
   CHECK (counted_cash IS NULL OR counted_cash >= 0),
-  CHECK ((status = 'OPEN' AND closed_by IS NULL AND closed_at IS NULL)
-    OR (status = 'CLOSED' AND closed_by IS NOT NULL AND closed_at IS NOT NULL
+  CONSTRAINT chk_daily_shift_closing CHECK ((status = 'OPEN' AND closed_by IS NULL AND closed_at IS NULL)
+    OR (status = 'CLOSED' AND closed_at IS NOT NULL
       AND revenue_by_payment IS NOT NULL AND cups IS NOT NULL
-      AND expected_cash IS NOT NULL AND counted_cash IS NOT NULL)),
+      AND expected_cash IS NOT NULL
+      AND ((counted_cash IS NOT NULL AND closed_by IS NOT NULL)
+        OR (counted_cash IS NULL AND closed_by IS NULL AND diff_reason IS NOT NULL AND diff_reason = '系統逾午夜自動收班')))),
   CHECK (counted_cash IS NULL OR expected_cash IS NULL OR counted_cash >= expected_cash
     OR (diff_reason IS NOT NULL AND CHAR_LENGTH(TRIM(diff_reason)) > 0))
 ) ENGINE=InnoDB;

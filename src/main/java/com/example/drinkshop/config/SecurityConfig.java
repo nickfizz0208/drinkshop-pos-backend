@@ -91,6 +91,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/wastages/order-item/*").hasRole("POS")
                         // 櫃台作業只限門市 POS 共用帳號：日結、訂單、會員、外送路線、上下班打卡、目前在班。
                         // 嚴格比對 POS，店長、總部用個人帳號也不行，要到 POS 機上操作。
+                        .requestMatchers(HttpMethod.POST, "/api/daily-shifts/*/reconcile").hasRole("MANAGER")
+                        .requestMatchers(HttpMethod.GET, "/api/daily-shifts/{date:[0-9]{4}-[0-9]{2}-[0-9]{2}}").hasAnyRole("POS", "MANAGER")
                         .requestMatchers("/api/daily-shifts", "/api/daily-shifts/**",
                                 "/api/orders", "/api/orders/**",
                                 "/api/members", "/api/members/**", "/api/route", "/api/geo/reverse",

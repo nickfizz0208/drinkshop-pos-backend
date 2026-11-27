@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 @Service
 @Transactional(isolation = Isolation.READ_COMMITTED)
 public class DailyShiftService {
+    public static final String AUTO_CLOSE_REASON = "系統逾午夜自動收班";
     private final DailyShiftRepository shifts;
     private final PosRepository repo;
     private final WastageService wastage;
@@ -132,9 +133,9 @@ public class DailyShiftService {
             shift.setStatus("CLOSED");
             shift.setCups(cups);
             shift.setExpectedCash(expected);
-            shift.setCountedCash(expected);
-            shift.setDiffReason("系統逾午夜自動收班");
-            shift.setClosedBy(shift.getOpenedBy());
+            shift.setCountedCash(null);
+            shift.setDiffReason(AUTO_CLOSE_REASON);
+            shift.setClosedBy(null);
             shift.setClosedAt(midnight);
             shift.setRevenueByPayment(json.write(receipts));
             if (shift.getRevenueByPayment() == null) shift.setRevenueByPayment("{}");
@@ -161,6 +162,31 @@ public class DailyShiftService {
         shift.setClosedBy(null); shift.setClosedAt(null); shift.setCups(null);
         shift.setExpectedCash(null); shift.setCountedCash(null); shift.setDiffReason(null);
         shift.setRevenueByPayment(null);
+        return shifts.saveAndFlush(shift);
+    }
+
+    /** 系統關班後補記實點；使用原結算快照，且同一班次只確認一次。 */
+    public DailyShift reconcileCash(LocalDate date, Long staffId, BigDecimal countedCash, String diffReason) {
+        var rows = repo.rows("SELECT status FROM daily_shift WHERE business_date=? FOR UPDATE", date);
+        if (rows.isEmpty()) throw ApiException.missing("查無這個營業日的班次");
+        var shift = shifts.findById(date).orElseThrow();
+        if (!"CLOSED".equals(shift.getStatus()) || shift.getDiffReason() == null
+                || !shift.getDiffReason().startsWith(AUTO_CLOSE_REASON))
+            throw ApiException.conflict("只有系統關班的紀錄可補記清點");
+        BigDecimal counted = Money.checked(countedCash);
+        String reason = diffReason == null || diffReason.isBlank() ? "無差額" : diffReason.trim();
+        String reasonSuffix = "；差異原因：" + reason;
+        if (!AUTO_CLOSE_REASON.equals(shift.getDiffReason())) {
+            if (staffId.equals(shift.getClosedBy()) && counted.compareTo(shift.getCountedCash()) == 0
+                    && shift.getDiffReason().endsWith(reasonSuffix)) return shift;
+            throw ApiException.conflict("這筆清點已由店長確認，請重新整理查看");
+        }
+        if (shift.getExpectedCash() == null) throw ApiException.conflict("缺少應有現金，請先核對班次資料");
+        if (counted.compareTo(shift.getExpectedCash()) != 0 && (diffReason == null || diffReason.isBlank()))
+            throw ApiException.bad("現金有差異，請填寫差異原因");
+        shift.setCountedCash(counted);
+        shift.setClosedBy(staffId);
+        shift.setDiffReason(AUTO_CLOSE_REASON + "；清點確認 " + LocalDateTime.now(clock).withNano(0) + reasonSuffix);
         return shifts.saveAndFlush(shift);
     }
 
